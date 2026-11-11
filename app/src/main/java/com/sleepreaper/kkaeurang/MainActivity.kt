@@ -6,6 +6,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
@@ -21,6 +22,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sleepreaper.kkaeurang.ui.theme.KkaeUrangTheme
+import com.sleepreaper.kkaeurang.voice.StopReason
 import com.sleepreaper.kkaeurang.voice.VoiceInputResult
 import com.sleepreaper.kkaeurang.voice.VoiceModule
 
@@ -36,6 +38,8 @@ class MainActivity : ComponentActivity() {
     // 테스트 화면 상태 (VoiceModule 콜백은 메인 스레드로 오므로 바로 바꿔도 된다)
     private var askState by mutableStateOf(AskState.IDLE)
     private var lastResult by mutableStateOf<VoiceInputResult?>(null)
+    private var alarmRunning by mutableStateOf(false)
+    private var alarmStopReason by mutableStateOf<StopReason?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,7 +53,11 @@ class MainActivity : ComponentActivity() {
                     VoiceTestScreen(
                         askState = askState,
                         lastResult = lastResult,
+                        alarmRunning = alarmRunning,
+                        alarmStopReason = alarmStopReason,
                         onAskClick = { askAndListen() },
+                        onAlarmStartClick = { startAlarm() },
+                        onAlarmStopClick = { voiceModule.stopAlarm() },
                         modifier = Modifier.padding(innerPadding)
                     )
                 }
@@ -68,6 +76,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // 졸음 판단 로직이 "졸음 상태 진입"을 알린 상황을 흉내 낸다 (기본값 그대로)
+    private fun startAlarm() {
+        voiceModule.startAlarm { reason ->
+            alarmRunning = false
+            alarmStopReason = reason
+        }
+        // 메인 스레드에서 부르면 상태가 바로 반영된다. 이미 경고 중이었거나 무음 상태면 그에 맞게 표시된다
+        if (voiceModule.isAlarmRunning) {
+            alarmRunning = true
+            alarmStopReason = null
+        }
+    }
+
     override fun onDestroy() {
         voiceModule.release()
         super.onDestroy()
@@ -78,7 +99,11 @@ class MainActivity : ComponentActivity() {
 fun VoiceTestScreen(
     askState: AskState,
     lastResult: VoiceInputResult?,
+    alarmRunning: Boolean,
+    alarmStopReason: StopReason?,
     onAskClick: () -> Unit,
+    onAlarmStartClick: () -> Unit,
+    onAlarmStopClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -90,6 +115,11 @@ fun VoiceTestScreen(
     ) {
         TestButton(label = "질문하고 듣기", onClick = onAskClick)
         ResultPanel(askState = askState, result = lastResult)
+        Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+            TestButton(label = "음성 경고 시작", onClick = onAlarmStartClick)
+            TestButton(label = "음성 경고 중지", onClick = onAlarmStopClick)
+        }
+        Text(text = alarmStatusText(alarmRunning, alarmStopReason), fontSize = 28.sp)
     }
 }
 
@@ -128,6 +158,20 @@ private fun ResultPanel(askState: AskState, result: VoiceInputResult?) {
     }
 }
 
+private fun alarmStatusText(running: Boolean, stopReason: StopReason?): String = when {
+    running -> "음성 경고: 진행 중"
+    stopReason == null -> "음성 경고: 대기"
+    else -> {
+        val description = when (stopReason) {
+            StopReason.STOPPED_BY_CALLER -> "호출자가 중지"
+            StopReason.MAX_DURATION -> "최대 시간 초과"
+            StopReason.AUDIO_FOCUS_LOST -> "다른 소리에 오디오 포커스를 뺏김"
+            StopReason.SILENCED -> "무음 상태"
+        }
+        "음성 경고: 중단됨 (사유: ${stopReason.name} · $description)"
+    }
+}
+
 @Preview(showBackground = true, widthDp = 800, heightDp = 600)
 @Composable
 fun VoiceTestScreenPreview() {
@@ -140,7 +184,11 @@ fun VoiceTestScreenPreview() {
                 isTimeout = false,
                 speechStartTimeMs = 1240L
             ),
-            onAskClick = {}
+            alarmRunning = false,
+            alarmStopReason = StopReason.STOPPED_BY_CALLER,
+            onAskClick = {},
+            onAlarmStartClick = {},
+            onAlarmStopClick = {}
         )
     }
 }
