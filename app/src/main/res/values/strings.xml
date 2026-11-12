@@ -1,3 +1,135 @@
 <resources>
     <string name="app_name">KkaeU-rang</string>
+    <string name="logo_text">깨우랑</string>
+
+    <!-- 졸음 단계 -->
+    <string name="level_normal">정상</string>
+    <string name="level_caution">주의</string>
+    <string name="level_warning">경고</string>
+    <!-- CRITICAL 표시 이름은 아직 미정. 일단 "위험" -->
+    <string name="level_critical">위험</string>
+
+    <!-- 공통 -->
+    <string name="btn_okay">괜찮아요</string>
+    <string name="btn_close">닫기</string>
+    <string name="btn_cancel">취소</string>
+    <string name="points_total">⭐ %1$,dP</string>
+    <string name="duration_h_m">%1$d시간 %2$d분</string>
+    <string name="duration_h">%1$d시간</string>
+    <string name="duration_m">%1$d분</string>
+    <string name="clock_format">%1$d:%2$02d</string>
+
+    <!-- GaugePanel (계기판) -->
+    <string name="stage_title">%1$d단계 %2$s</string>
+    <string name="dial_caption">졸음 지수</string>
+    <string name="score_log_title">마지막 점수 로그</string>
+    <string name="score_log_entry">[%1$s %2$+d점]</string>
+    <string name="score_log_empty">아직 점수 변화가 없어요</string>
+    <string name="total_points_label">지금까지 쌓인 깨우랑 포인트</string>
+
+    <!-- 메인 화면: 계기판 가운데 + 네 모서리 -->
+    <string name="main_points_label">지금까지 쌓인 포인트 :</string>
+    <string name="main_points_value">%1$,dP</string>
+    <string name="main_drive_time">%1$s 주행 중</string>
+    <string name="main_risk_time">위험 시간대</string>
+    <string name="main_voice_idle">대기</string>
+    <string name="main_voice_asking">말하는 중…</string>
+    <string name="main_voice_listening">듣는 중…</string>
+    <string name="main_voice_no_response">응답 없음</string>
+    <string name="main_voice_failed">인식 불가</string>
+    <string name="main_voice_alarm">알람 중</string>
+    <string name="main_voice_quote">“%1$s”</string>
+    <string name="main_warning_sound">경고음</string>
+    <string name="main_window_closed">창문 닫힘</string>
+    <string name="main_window_open">창문 열림</string>
+    <string name="main_outside_air_off">외기 유입 OFF</string>
+    <string name="main_outside_air_on">외기 유입 ON</string>
+    <string name="main_weather_clear">맑음</string>
+    <string name="main_weather_partly_cloudy">구름 조금</string>
+    <string name="main_weather_cloudy">흐림</string>
+    <string name="main_weather_rain">비</string>
+    <string name="main_weather_snow">눈</string>
+    <string name="main_rest_distance">%1$.1fkm</string>
+    <string name="main_waypoint_added">경유지 추가됨</string>
+    <string name="main_dial_description">졸음 점수 %1$d점, %2$s</string>
+
+    <!-- ReasonBlock -->
+    <string name="reason_title">판단 근거</string>
+    <string name="reason_none">특이사항 없음</string>
+    <string name="reason_bullet">· %1$s</string>
+    <string name="continuous_drive">🕐 연속 %1$s</string>
+    <string name="continuous_drive_long">🕐 연속 %1$s · 오래 달렸어요</string>
+    <string name="risk_time_badge">🌙 위험 시간대</string>
+
+    <!-- RewardStrip -->
+    <string name="reward_title">이번 주행</string>
+    <string name="reward_awake">🕐 깨어 있던 시간 %1$s</string>
+    <string name="reward_drive_total">전체 주행 %1$s</string>
+    <string name="reward_trip_points">⭐ +%1$,dP</string>
+    <string name="accrual_accruing">● 적립 중</string>
+    <string name="accrual_paused">⏸ 적립 잠시 멈춤</string>
+    <string name="accrual_resumed">● 적립 재개</string>
+
+    <!-- VoicePanel -->
+    <string name="voice_icon_speaker">🔊</string>
+    <string name="voice_icon_mic">🎤</string>
+    <string name="voice_default_question">주행이 평소와 조금 달라요. 괜찮으세요?</string>
+    <string name="voice_listening">지금 말씀하세요</string>
+    <string name="voice_result">“%1$s”</string>
+    <string name="voice_no_response">다시 여쭤볼게요</string>
+    <string name="voice_failed">음성 인식을 사용할 수 없어요</string>
+    <string name="voice_points_hint">대답하면 바로 적립이 재개돼요</string>
+
+    <!-- WarningPanel -->
+    <string name="warning_title">졸음이 감지됐어요</string>
+    <string name="warning_alarm_running">🔔 알람 재생 중</string>
+    <string name="warning_forced">응답이 없어 경고를 유지 중이에요 · %1$s</string>
+
+    <!-- VehicleControlBanner -->
+    <string name="vehicle_icon_window">🪟</string>
+    <string name="vehicle_icon_blocked">🌬️</string>
+    <string name="live_window_opened">졸음 감지로 창문을 조금 열었어요</string>
+
+    <!-- RestStopCard -->
+    <string name="rest_suggest">쉬어가고 싶다면 가까운 쉼터가 있어요</string>
+    <string name="rest_type_drowsy_shelter">졸음쉼터</string>
+    <string name="rest_type_service_area">휴게소</string>
+    <string name="rest_distance">📍 %1$.1fkm</string>
+    <string name="rest_toilet_yes">🚻 화장실 있음</string>
+    <string name="rest_toilet_no">🚻 화장실 없음</string>
+    <string name="rest_parking">🅿️ 주차 %1$d면</string>
+    <string name="rest_parking_unknown">🅿️ 주차 정보 없음</string>
+    <string name="rest_add_waypoint">경유지 추가</string>
+    <string name="rest_waypoint_added">✓ %1$s 경유 중</string>
+
+    <!-- TripReportScreen -->
+    <string name="report_headline">오늘 %1$s 깨어 있었어요 · +%2$,dP 🎉</string>
+    <string name="report_drive_time">주행 시간</string>
+    <string name="report_awake_time">깨어 있던 시간</string>
+    <string name="report_points">적립 포인트</string>
+    <string name="report_points_value">+%1$,dP</string>
+    <string name="report_avg_response">평균 반응 속도</string>
+    <string name="report_avg_response_value">%1$.1f초</string>
+    <string name="report_no_record">기록 없음</string>
+    <string name="report_max_level">최고 단계</string>
+    <string name="report_event_count">졸음 의심 이벤트</string>
+    <string name="report_rest_count">휴식 횟수</string>
+    <string name="report_count_value">%1$d회</string>
+    <string name="report_total_points">누적 포인트 ⭐ %1$,dP</string>
+
+    <!-- Fake 데이터 (FakeKkaeuStateSource 전용, 실제 모듈 연동 후 삭제) -->
+    <string name="fake_reason_no_steering">한동안 핸들 조작이 없었어요</string>
+    <string name="fake_reason_steer_jerk">핸들을 고정하다 갑자기 크게 꺾었어요</string>
+    <string name="fake_reason_drift">깜빡이 없이 한쪽으로 쏠렸어요</string>
+    <string name="fake_reason_speed">속도가 일정하지 않아요</string>
+    <string name="fake_voice_answer">괜찮아</string>
+    <string name="fake_log_answer">괜찮다고 대답했어요</string>
+    <string name="fake_log_no_steering">핸들 조작 없음</string>
+    <string name="fake_log_steer_jerk">핸들 고정 후 급조작</string>
+    <string name="fake_log_drift">깜빡이 없이 쏠림</string>
+    <string name="fake_log_speed">속도 불안정</string>
+    <string name="fake_window_opened">졸음 감지로 창문을 조금 열었어요</string>
+    <string name="fake_window_try">졸음 감지로 창문을 열려고 했어요</string>
+    <string name="fake_window_blocked_rain">비가 와서 창문 대신 찬바람을 켰어요</string>
+    <string name="fake_rest_stop_name">청주 졸음쉼터</string>
 </resources>

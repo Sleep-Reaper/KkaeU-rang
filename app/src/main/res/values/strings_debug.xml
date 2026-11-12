@@ -1,0 +1,33 @@
+<resources>
+    <!-- 디버그 패널 (시연·개발용) -->
+    <string name="debug_title">🛠 디버그 패널</string>
+    <string name="debug_demo_play">▶ 데모 시나리오 자동 재생</string>
+    <string name="debug_demo_stop">■ 데모 정지</string>
+    <string name="debug_section_score">점수 %1$d · %2$s</string>
+    <string name="debug_section_reason">판단 근거 이벤트</string>
+    <string name="debug_event_no_steering">① 핸들 조작 없음 +15</string>
+    <string name="debug_event_steer_jerk">② 핸들 고정 후 급조작 +25</string>
+    <string name="debug_event_drift">③ 깜빡이 없이 쏠림 +15</string>
+    <string name="debug_event_speed">④ 속도 유지 불안정 +10</string>
+    <string name="debug_section_drive">주행</string>
+    <string name="debug_risk_time">위험 시간대</string>
+    <string name="debug_add_drive">연속 주행 +30분</string>
+    <string name="debug_section_voice">음성 상태</string>
+    <string name="debug_alarm">알람</string>
+    <string name="debug_section_vehicle">차량 제어 이벤트</string>
+    <string name="debug_vehicle_window">창문 열림</string>
+    <string name="debug_vehicle_rain">비 때문에 차단</string>
+    <string name="debug_section_rest">쉼터 정보</string>
+    <string name="debug_rest_add">쉼터 넣기</string>
+    <string name="debug_rest_remove">쉼터 빼기</string>
+    <string name="debug_gear_p">기어 P (주행 종료)</string>
+    <string name="debug_reset">전체 초기화</string>
+
+    <!-- 데모 시나리오 단계 -->
+    <string name="demo_step_1">1/6 정상 주행 · 적립 중</string>
+    <string name="demo_step_2">2/6 이벤트 → 주의 · 질문</string>
+    <string name="demo_step_3">3/6 2초 만에 대답 → 적립 재개</string>
+    <string name="demo_step_4">4/6 이벤트 연속 → 경고 · 알람 · 창문</string>
+    <string name="demo_step_5">5/6 위험 → 쉼터 안내 · 경유지 추가</string>
+    <string name="demo_step_6">6/6 쉼터 도착 · P단 → 주행 리포트</string>
+</resources>

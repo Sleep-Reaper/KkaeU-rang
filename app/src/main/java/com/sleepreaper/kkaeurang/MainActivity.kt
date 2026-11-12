@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,6 +16,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -23,12 +25,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.sleepreaper.kkaeurang.detector.DrowsinessChecker
-import com.sleepreaper.kkaeurang.detector.NoOpNaviModule
-import com.sleepreaper.kkaeurang.detector.NoOpWindowModule
-import com.sleepreaper.kkaeurang.detector.VehicleSignalCollector
-import com.sleepreaper.kkaeurang.detector.VoiceModuleAlarm
-import com.sleepreaper.kkaeurang.detector.VoiceModuleDriverVoice
+import androidx.lifecycle.lifecycleScope
+import com.sleepreaper.kkaeurang.integration.KkaeuLiveSource
+import com.sleepreaper.kkaeurang.ui.fake.FakeKkaeuStateSource
+import com.sleepreaper.kkaeurang.ui.screens.KkaeuApp
 import com.sleepreaper.kkaeurang.ui.theme.KkaeUrangTheme
 import com.sleepreaper.kkaeurang.voice.StopReason
 import com.sleepreaper.kkaeurang.voice.VoiceInputResult
@@ -36,6 +36,16 @@ import com.sleepreaper.kkaeurang.voice.VoiceModule
 
 private const val ASK_QUESTION = "주행이 평소와 조금 달라요. 괜찮으세요?"
 private const val TAG = "Kkaeu.Main"
+
+/** 화면에 무엇을 띄울지 */
+private enum class AppMode {
+    LIVE,        // 실제 모듈 연결: 판단 엔진 + 음성 + 차량 신호 → 깨우랑 UI
+    FAKE_DEMO,   // 가짜 데이터로 UI만 시연 (디버그 패널·데모 시나리오 사용 가능, 엔진은 돌지 않음)
+    VOICE_TEST,  // 기존 음성 모듈 테스트 화면
+}
+
+/** 시연·개발 때 여기만 바꾼다 */
+private val APP_MODE = AppMode.LIVE
 
 // 차량 신호 수집에 필요한 실행 중 권한 (Manifest에도 선언되어 있어야 함)
 private val CAR_PERMISSIONS = arrayOf(
@@ -52,9 +62,11 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var voiceModule: VoiceModule
 
-    // 졸음 판단 엔진. 결과는 checker.result(StateFlow)로 받는다.
-    private lateinit var checker: DrowsinessChecker
-    private var checkerStarted = false
+    // 실제 모듈을 UI에 연결하는 상태 공급자. 안에서 졸음 판단 엔진(DrowsinessChecker)을 만들고 돌린다.
+    private var liveSource: KkaeuLiveSource? = null
+
+    // FAKE_DEMO 모드용 가짜 상태 공급자 (처음 접근할 때 만들어진다)
+    private val fakeSource: FakeKkaeuStateSource by viewModels()
 
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
@@ -75,29 +87,37 @@ class MainActivity : ComponentActivity() {
         voiceModule = VoiceModule(this)
         voiceModule.init()
 
-        checker = DrowsinessChecker(
-            source = VehicleSignalCollector(this),
-            voice = VoiceModuleDriverVoice(voiceModule),
-            alarm = VoiceModuleAlarm(voiceModule),
-            window = NoOpWindowModule(),   // TODO: 창문 모듈이 생기면 교체
-            navi = NoOpNaviModule()        // TODO: 내비 모듈이 생기면 교체
-        )
-        permissionLauncher.launch(CAR_PERMISSIONS)
+        if (APP_MODE == AppMode.LIVE) {
+            // 창문·내비 모듈이 생기면 KkaeuLiveSource(window = ..., navi = ...)로 넘긴다
+            liveSource = KkaeuLiveSource(this, voiceModule, lifecycleScope)
+            permissionLauncher.launch(CAR_PERMISSIONS)
+        }
 
         enableEdgeToEdge()
         setContent {
             KkaeUrangTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    VoiceTestScreen(
-                        askState = askState,
-                        lastResult = lastResult,
-                        alarmRunning = alarmRunning,
-                        alarmStopReason = alarmStopReason,
-                        onAskClick = { askAndListen() },
-                        onAlarmStartClick = { startAlarm() },
-                        onAlarmStopClick = { voiceModule.stopAlarm() },
-                        modifier = Modifier.padding(innerPadding)
-                    )
+                when (APP_MODE) {
+                    AppMode.LIVE -> {
+                        val source = requireNotNull(liveSource)
+                        val state by source.state.collectAsState()
+                        KkaeuApp(state = state, actions = source, debugControls = null)
+                    }
+                    AppMode.FAKE_DEMO -> {
+                        val state by fakeSource.state.collectAsState()
+                        KkaeuApp(state = state, actions = fakeSource, debugControls = fakeSource)
+                    }
+                    AppMode.VOICE_TEST -> Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                        VoiceTestScreen(
+                            askState = askState,
+                            lastResult = lastResult,
+                            alarmRunning = alarmRunning,
+                            alarmStopReason = alarmStopReason,
+                            onAskClick = { askAndListen() },
+                            onAlarmStartClick = { startAlarm() },
+                            onAlarmStopClick = { voiceModule.stopAlarm() },
+                            modifier = Modifier.padding(innerPadding)
+                        )
+                    }
                 }
             }
         }
@@ -128,17 +148,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startDrowsinessChecker() {
-        if (checkerStarted) return
         try {
-            checker.start()
-            checkerStarted = true
+            liveSource?.start()
         } catch (e: Exception) {
             Log.e(TAG, "졸음 판단 시작 실패", e)
         }
     }
 
     override fun onDestroy() {
-        if (checkerStarted) checker.stop()   // voiceModule보다 먼저 정리
+        liveSource?.stop()   // 엔진을 voiceModule보다 먼저 정리
         voiceModule.release()
         super.onDestroy()
     }
