@@ -1,5 +1,7 @@
 package com.sleepreaper.kkaeurang
 
+import android.Manifest
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -25,10 +27,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.lifecycleScope
-import com.sleepreaper.kkaeurang.integration.KkaeuLiveSource
-import com.sleepreaper.kkaeurang.integration.SimulatedSignalSource
-import com.sleepreaper.kkaeurang.integration.SimulatedWindowModule
+import com.sleepreaper.kkaeurang.integration.DrowsinessService
+import com.sleepreaper.kkaeurang.integration.KkaeuRuntime
 import com.sleepreaper.kkaeurang.ui.fake.FakeKkaeuStateSource
 import com.sleepreaper.kkaeurang.ui.screens.KkaeuApp
 import com.sleepreaper.kkaeurang.ui.theme.KkaeUrangTheme
@@ -61,15 +61,20 @@ private val CAR_PERMISSIONS = arrayOf(
     "pleos.car.permission.CAR_LIGHTS"
 )
 
+// 포그라운드 서비스 상시 알림용 (Android 13+). 거부돼도 서비스는 동작한다
+private val NOTIFICATION_PERMISSIONS =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) arrayOf(Manifest.permission.POST_NOTIFICATIONS) else emptyArray()
+
+// 마이크: 음성 대답 듣기 + 마이크 타입 포그라운드 서비스 시작 조건. 거부되면 서비스를 시작하지 않는다
+private const val MIC_PERMISSION = Manifest.permission.RECORD_AUDIO
+
 /** "질문하고 듣기" 테스트 진행 상태 */
 enum class AskState { IDLE, ASKING, LISTENING }
 
 class MainActivity : ComponentActivity() {
 
-    private lateinit var voiceModule: VoiceModule
-
-    // 실제 모듈을 UI에 연결하는 상태 공급자. 안에서 졸음 판단 엔진(DrowsinessChecker)을 만들고 돌린다.
-    private var liveSource: KkaeuLiveSource? = null
+    // VOICE_TEST 모드에서만 쓴다. LIVE 모드의 VoiceModule은 DrowsinessService가 들고 있다.
+    private val voiceModule: VoiceModule by lazy { VoiceModule(this).also { it.init() } }
 
     // FAKE_DEMO 모드용 가짜 상태 공급자 (처음 접근할 때 만들어진다)
     private val fakeSource: FakeKkaeuStateSource by viewModels()
@@ -78,8 +83,13 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
             val denied = granted.filterValues { !it }.keys
             if (denied.isNotEmpty()) Log.e(TAG, "권한 거부: $denied")
-            // 일부 권한이 거부돼도 시작한다. 어떤 신호가 안 들어오는지 로그로 확인하기 위함.
-            startDrowsinessChecker()
+            if (MIC_PERMISSION in denied) {
+                // 마이크 없이는 마이크 타입 서비스를 시작할 수 없고 음성 질문도 못 하므로 시작하지 않는다
+                Log.e(TAG, "마이크 권한 거부 → 졸음 감시 서비스를 시작하지 않음")
+                return@registerForActivityResult
+            }
+            // 차량 권한 일부가 거부돼도 시작한다. 어떤 신호가 안 들어오는지 로그로 확인하기 위함.
+            startDrowsinessService(simulated = APP_MODE == AppMode.LIVE_SIMULATED)
         }
 
     // 테스트 화면 상태 (VoiceModule 콜백은 메인 스레드로 오므로 바로 바꿔도 된다)
@@ -90,25 +100,17 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        voiceModule = VoiceModule(this)
-        voiceModule.init()
-
-        // 창문·내비 모듈이 생기면 KkaeuLiveSource(window = ..., navi = ...)로 넘긴다
-        when (APP_MODE) {
-            AppMode.LIVE -> {
-                liveSource = KkaeuLiveSource(this, voiceModule, lifecycleScope)
-                permissionLauncher.launch(CAR_PERMISSIONS)
+        // 창문·내비 모듈이 생기면 DrowsinessService의 KkaeuLiveSource(window = ..., navi = ...)로 넘긴다
+        // 이미 서비스가 돌고 있으면(화면 회전·재진입) 다시 시작하지 않는다
+        if (KkaeuRuntime.source.value == null) {
+            when (APP_MODE) {
+                AppMode.LIVE ->
+                    permissionLauncher.launch(arrayOf(MIC_PERMISSION) + NOTIFICATION_PERMISSIONS + CAR_PERMISSIONS)
+                // 가짜 차량 신호는 차량 권한이 필요 없지만, 음성은 실제라 마이크·알림 권한은 필요하다
+                AppMode.LIVE_SIMULATED ->
+                    permissionLauncher.launch(arrayOf(MIC_PERMISSION) + NOTIFICATION_PERMISSIONS)
+                else -> Unit
             }
-            AppMode.LIVE_SIMULATED -> {
-                // 가짜 차량 신호는 차량 권한이 필요 없으므로 바로 시작한다
-                liveSource = KkaeuLiveSource(
-                    this, voiceModule, lifecycleScope,
-                    signalSource = SimulatedSignalSource(),
-                    window = SimulatedWindowModule(),   // 위험 단계의 "창문 열림" 화면까지 확인할 수 있게
-                )
-                startDrowsinessChecker()
-            }
-            else -> Unit
         }
 
         enableEdgeToEdge()
@@ -116,14 +118,17 @@ class MainActivity : ComponentActivity() {
             KkaeUrangTheme {
                 when (APP_MODE) {
                     AppMode.LIVE, AppMode.LIVE_SIMULATED -> {
-                        val source = requireNotNull(liveSource)
-                        val state by source.state.collectAsState()
-                        KkaeuApp(
-                            state = state,
-                            actions = source,
-                            debugControls = null,
-                            liveDebugControls = source.takeIf { LIVE_DEBUG_PANEL },
-                        )
+                        // 서비스가 엔진을 만든 뒤에 source가 생긴다 (그 전이나 서비스 종료 후에는 null)
+                        val source by KkaeuRuntime.source.collectAsState()
+                        source?.let { live ->
+                            val state by live.state.collectAsState()
+                            KkaeuApp(
+                                state = state,
+                                actions = live,
+                                debugControls = null,
+                                liveDebugControls = live.takeIf { LIVE_DEBUG_PANEL },
+                            )
+                        }
                     }
                     AppMode.FAKE_DEMO -> {
                         val state by fakeSource.state.collectAsState()
@@ -170,17 +175,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun startDrowsinessChecker() {
+    private fun startDrowsinessService(simulated: Boolean) {
         try {
-            liveSource?.start()
+            DrowsinessService.start(this, simulated)
         } catch (e: Exception) {
-            Log.e(TAG, "졸음 판단 시작 실패", e)
+            Log.e(TAG, "졸음 감시 서비스 시작 실패", e)
         }
     }
 
     override fun onDestroy() {
-        liveSource?.stop()   // 엔진을 voiceModule보다 먼저 정리
-        voiceModule.release()
+        // 엔진과 음성은 서비스가 들고 있으므로 여기서 멈추지 않는다 (화면을 닫아도 계속 감시)
+        if (APP_MODE == AppMode.VOICE_TEST) voiceModule.release()
         super.onDestroy()
     }
 }
