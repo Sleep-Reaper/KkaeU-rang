@@ -5,6 +5,7 @@ plugins {
 
 android {
     namespace = "com.sleepreaper.kkaeurang"
+    useLibrary("android.car")   // AAOS Car API (차속·기어 수신)
     compileSdk {
         version = release(37)
     }
@@ -47,6 +48,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation("ai.pleos.playground:TextToSpeech:3.3.1")
     implementation("ai.pleos.playground:SpeechToText:3.3.1")
+    implementation("ai.pleos.playground:Vehicle:2.3.2")   // 핸들·깜빡이·브레이크 (2.3.1은 저장소에 없음)
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")   // StateFlow
     implementation("ai.pleos.playground:NaviHelper:2.0.3")
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
