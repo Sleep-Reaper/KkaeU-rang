@@ -12,20 +12,23 @@ class DrowsinessCheckerTest {
     private class FakeSource : SignalSource {
         var speed = 80f
         var steer = 0f
+        var park = false
         override fun start() = Unit
         override fun stop() = Unit
-        override fun sample(now: Long) = Sample(now, speed, steer, false, false, false)
+        override fun sample(now: Long) = Sample(now, speed, steer, false, false, park)
     }
 
     private class FakeVoice : DriverVoice {
         var askCount = 0
         var stopAllCount = 0
+        val said = mutableListOf<String>()
         private var pending: ((VoiceAnswer) -> Unit)? = null
         override fun ask(question: String, onResult: (VoiceAnswer) -> Unit) {
             askCount++
             pending = onResult
         }
         override fun stopAll() { stopAllCount++ }
+        override fun say(text: String) { said += text }
         fun respond(answer: VoiceAnswer) {
             val cb = pending!!
             pending = null            // 콜백 안에서 재질문하면 새 pending이 들어온다
@@ -42,12 +45,16 @@ class DrowsinessCheckerTest {
 
     private class FakeWindow : WindowModule {
         var opens = 0
+        var succeed = true
         override fun open() { opens++ }
+        override fun open(onResult: (Boolean) -> Unit) { opens++; onResult(succeed) }
     }
 
     private class FakeNavi : NaviModule {
         var calls = 0
+        var succeed = true
         override fun guideToRestArea() { calls++ }
+        override fun guideToRestArea(onResult: (Boolean) -> Unit) { calls++; onResult(succeed) }
     }
 
     private lateinit var src: FakeSource
@@ -241,6 +248,76 @@ class DrowsinessCheckerTest {
         assertEquals(100, checker.logs.value.size)
         val times = checker.logs.value.map { it.time }
         assertEquals(times.sorted(), times)    // 오래된 것이 앞
+    }
+
+    // ── 정차(P단) 해제 ──
+
+    @Test fun parkedAtWarning_stopsAlarm_announces_andResetsScore() {
+        cycle1(); nextCycle()
+        assertEquals(Level.WARNING, result.level)
+
+        src.park = true
+        tickN(1)
+
+        assertEquals(Level.NORMAL, result.level)
+        assertEquals(0, result.score)
+        assertTrue(alarm.stops >= 1)
+        assertTrue(voice.said.contains("잘 쉬고 출발하세요."))
+        assertTrue(logMessages.contains("정차(P단) → 경고 해제"))
+    }
+
+    @Test fun parkedAtWarning_announcesOnlyOnce() {
+        cycle1(); nextCycle()
+        src.park = true
+        tickN(5)
+        assertEquals(1, voice.said.count { it == "잘 쉬고 출발하세요." })
+    }
+
+    @Test fun parkedAtWarning_clearsForcedNoAnswerLevel() {
+        cycle1()
+        voice.respond(VoiceAnswer(null, true, null))     // 무응답 → WARNING 3분 강제
+        tickVarying(1)
+        assertEquals(Level.WARNING, result.level)
+
+        src.park = true
+        tickN(1)
+        assertEquals(Level.NORMAL, result.level)
+    }
+
+    @Test fun parkedAtCaution_doesNotReleaseOrAnnounce() {
+        cycle1()
+        assertEquals(Level.CAUTION, result.level)
+        val before = result.score
+
+        src.park = true
+        tickN(1)
+
+        assertTrue(voice.said.isEmpty())
+        assertTrue("주의 단계에서는 점수를 초기화하지 않는다 (before=$before, now=${result.score})", result.score >= before - 1)
+    }
+
+    // ── DANGER 안내와 창문·내비 실패 대체 ──
+
+    @Test fun danger_announcesByVoice() {
+        cycle1(); nextCycle(); nextCycle()
+        assertEquals(Level.DANGER, result.level)
+        assertEquals(1, voice.said.count { it.contains("졸음쉼터로 안내할게요") })
+        assertTrue(voice.said.none { it.contains("열지 못했어요") })
+    }
+
+    @Test fun danger_windowFails_fallsBackToVoice() {
+        win.succeed = false
+        cycle1(); nextCycle(); nextCycle()
+        assertEquals(1, win.opens)
+        assertTrue(voice.said.any { it.contains("창문을 열지 못했어요") })
+        assertTrue(logMessages.contains("창문 열기 실패 → 음성 안내로 대체"))
+    }
+
+    @Test fun danger_naviFails_fallsBackToVoice() {
+        navi.succeed = false
+        cycle1(); nextCycle(); nextCycle()
+        assertEquals(1, navi.calls)
+        assertTrue(voice.said.any { it.contains("졸음쉼터 안내에 실패했어요") })
     }
 
     @Test fun stop_cancelsVoiceAndAlarm() {

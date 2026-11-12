@@ -30,6 +30,9 @@ interface DriverVoice {
 
     /** 진행 중인 질문·듣기를 취소한다. 취소되면 [onResult]는 호출되지 않는다. */
     fun stopAll()
+
+    /** 듣지 않고 안내 문구만 말한다. (위험 단계 안내, 정차 시 안내, 창문·내비 실패 대체 안내). 기본은 아무것도 하지 않는다. */
+    fun say(text: String) {}
 }
 
 interface AlarmModule {
@@ -39,10 +42,25 @@ interface AlarmModule {
 
 interface WindowModule {
     fun open()
+
+    /**
+     * 열기 결과(성공 여부)를 [onResult]로 받는 버전. 엔진은 이쪽을 부른다. 메인 스레드에서 정확히 한 번 호출해야 한다.
+     * 실패를 알 수 있는 모듈은 이쪽을 구현한다. 기본 구현은 [open] 후 성공으로 본다.
+     */
+    fun open(onResult: (success: Boolean) -> Unit) {
+        open()
+        onResult(true)
+    }
 }
 
 interface NaviModule {
     fun guideToRestArea()
+
+    /** 졸음쉼터 경유지 추가 결과를 [onResult]로 받는 버전. 의미·기본 구현은 [WindowModule.open]과 같다. */
+    fun guideToRestArea(onResult: (success: Boolean) -> Unit) {
+        guideToRestArea()
+        onResult(true)
+    }
 }
 
 /** 운전자 대답을 판단한 결과 */

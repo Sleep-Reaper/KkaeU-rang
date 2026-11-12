@@ -25,6 +25,8 @@ class VoiceModuleDriverVoice(private val voice: VoiceModule) : DriverVoice {
 
     /** 진행 중인 질문·듣기와 음성 경고까지 모두 멈춘다 (VoiceModule.stopAll 동작). */
     override fun stopAll() = voice.stopAll()
+
+    override fun say(text: String) = voice.speak(text)
 }
 
 /** 알람: 음성 경고(문구 반복 + 신호음)를 쓴다. 경고 중이 아닐 때 stop은 무시된다. */
@@ -38,12 +40,24 @@ class NoOpWindowModule : WindowModule {
     override fun open() {
         Log.w(TAG, "창문 열기 호출됨 (미구현: 실제로는 열리지 않음)")
     }
+
+    /** 실제로 열지 못하므로 실패로 알린다 (엔진이 음성으로 대체 안내한다) */
+    override fun open(onResult: (Boolean) -> Unit) {
+        open()
+        onResult(false)
+    }
 }
 
 /** 졸음쉼터 내비 안내 — 아직 구현되지 않음. 호출됐다는 로그만 남긴다. */
 class NoOpNaviModule : NaviModule {
     override fun guideToRestArea() {
         Log.w(TAG, "졸음쉼터 안내 호출됨 (미구현: 실제로는 안내되지 않음)")
+    }
+
+    /** 실제로 안내하지 못하므로 실패로 알린다 (엔진이 음성으로 대체 안내한다) */
+    override fun guideToRestArea(onResult: (Boolean) -> Unit) {
+        guideToRestArea()
+        onResult(false)
     }
 }
 
