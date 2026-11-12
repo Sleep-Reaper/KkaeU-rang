@@ -13,6 +13,16 @@ import kotlin.math.roundToInt
  *
  * 모든 동작은 **메인 스레드**에서 일어난다. (음성 콜백도 메인이라 별도 동기화가 필요 없다.)
  * 차량 신호 리스너는 다른 스레드여도 되지만 [SignalSource]가 최신값만 들고 있어야 한다.
+ *
+ * ## UI에서 쓰는 법 (세 값 모두 1초마다 갱신되고, 메인 스레드에서 바뀜다)
+ * ```
+ * val result by checker.result.collectAsState()   // score(0~100), level, reasons
+ * val sample by checker.sample.collectAsState()   // 속도·핸들·깜빡이·브레이크·기어 실시간 값
+ * val logs by checker.logs.collectAsState()       // 최근 사건 로그 (최대 100개, 오래된 것이 앞)
+ * ```
+ * - [logs]는 단계 변경·점수 가산·질문·응답·알람/창문/내비 호출만 담는다. 매초 점수는 [result]를 쓴다.
+ * - 운전자 대답 원문은 로그에 넣지 않고 분류 결과만 남긴다.
+ * - [start]가 성공해야 값이 갱신된다. (권한 요청 후 시작)
  */
 class DrowsinessChecker(
     private val source: SignalSource,
@@ -41,6 +51,14 @@ class DrowsinessChecker(
     private val _result = MutableStateFlow(DrowsinessResult())
     val result: StateFlow<DrowsinessResult> = _result
 
+    private val _sample = MutableStateFlow(Sample(0L, 0f, 0f, false, false, true))
+    /** 마지막으로 찍은 차량 상태. 시작 전에는 정지(P단, 0km/h) 기본값 */
+    val sample: StateFlow<Sample> = _sample
+
+    private val _logs = MutableStateFlow<List<LogEntry>>(emptyList())
+    /** 최근 사건 로그 (최대 [MAX_LOGS]개) */
+    val logs: StateFlow<List<LogEntry>> = _logs
+
     private var handler: Handler? = null
     private val loop = object : Runnable {
         override fun run() {
@@ -66,6 +84,7 @@ class DrowsinessChecker(
     internal fun tick(now: Long) {
         // 1) 샘플 찍기, 최근 10분만 보관
         val s = source.sample(now)
+        _sample.value = s
         samples.addLast(s)
         while (samples.size > MAX_SAMPLES) samples.removeFirst()
         val list = samples.toList()
@@ -122,24 +141,29 @@ class DrowsinessChecker(
 
     /** 단계가 바뀐 순간에 한 번만 호출된다. */
     private fun onLevelChanged(prev: Level, next: Level, now: Long) {
-        log("단계 변경: $prev → $next")
+        note(now, "단계 변경: ${label(prev)} → ${label(next)} (점수 ${_result.value.score})")
 
         if (next == Level.CAUTION && prev < Level.CAUTION) {
             retryCount = 0
             if (canAsk(now)) askDriver(now)
         }
         if (next >= Level.WARNING && prev < Level.WARNING) {
+            note(now, "알람 시작")
             alarm.start()
         }
         if (next == Level.DANGER && prev < Level.DANGER) {
             val last = lastWindowNaviMs
             if (last == null || now - last > WINDOW_NAVI_COOLDOWN_MS) {
+                note(now, "창문 열기, 졸음쉼터 안내 요청")
                 window.open()
                 navi.guideToRestArea()
                 lastWindowNaviMs = now
+            } else {
+                note(now, "창문·내비는 10분 안에 이미 실행했어 생략")
             }
         }
         if (next < Level.WARNING && prev >= Level.WARNING) {
+            note(now, "알람 중지")
             alarm.stop()
         }
     }
@@ -154,13 +178,15 @@ class DrowsinessChecker(
     private fun askDriver(now: Long) {
         asking = true
         lastAskMs = now
+        note(now, "운전자에게 질문")
         voice.ask(QUESTION) { answer -> onAnswer(answer, clock()) }
     }
 
     private fun onAnswer(answer: VoiceAnswer, now: Long) {
         asking = false
         val response = DriverResponseClassifier.classify(answer)
-        log("운전자 응답: $response ($answer)")
+        log("운전자 응답: $response ($answer)")   // Logcat에만: 인식된 문장 원문 포함
+        note(now, "운전자 응답: ${label(response)}")      // UI 로그: 분류 결과만
 
         when (response) {
             DriverResponse.OK -> lastAskMs = now                     // 5분간 다시 묻지 않음
@@ -174,6 +200,7 @@ class DrowsinessChecker(
                 forcedLevel = if (lastLevel >= Level.WARNING) Level.DANGER else Level.WARNING
                 forcedUntil = now + FORCED_MS
                 recentEvents.addLast(now to "운전자 응답 없음")
+                note(now, "무응답 → ${label(forcedLevel)} 단계를 3분간 유지")
             }
             DriverResponse.ERROR -> Unit                             // 기기 문제일 수 있어 판단 보류
         }
@@ -182,6 +209,29 @@ class DrowsinessChecker(
     private fun addEvent(now: Long, point: Float, msg: String) {
         eventScore = (eventScore + point).coerceAtMost(MAX_EVENT_SCORE)
         recentEvents.addLast(now to msg)
+        note(now, "$msg (+${point.toInt()}점)")
+    }
+
+    /** Logcat과 UI 로그([logs])에 함께 남긴다. 매초 찍는 점수 로그에는 쓰지 않는다. */
+    private fun note(now: Long, message: String) {
+        log(message)
+        _logs.value = (_logs.value + LogEntry(now, message)).takeLast(MAX_LOGS)
+    }
+
+    private fun label(level: Level) = when (level) {
+        Level.NORMAL -> "정상"
+        Level.CAUTION -> "주의"
+        Level.WARNING -> "경고"
+        Level.DANGER -> "위험"
+    }
+
+    private fun label(response: DriverResponse) = when (response) {
+        DriverResponse.ADMITTED -> "졸림 인정"
+        DriverResponse.OK -> "괜찮음"
+        DriverResponse.UNCLEAR -> "불명확"
+        DriverResponse.SLOW -> "느린 응답"
+        DriverResponse.NO_ANSWER -> "무응답"
+        DriverResponse.ERROR -> "인식 실패(판단 보류)"
     }
 
     /** 같은 상태가 계속되는 동안 매초 점수가 쌓이지 않도록, 직전 틱에는 거짓이었다가 이번에 참이 된 순간만 true */
@@ -194,6 +244,7 @@ class DrowsinessChecker(
 
         private const val TICK_MS = 1000L
         private const val MAX_SAMPLES = 600
+        private const val MAX_LOGS = 100
         private const val DECAY_PER_TICK = 0.05f
         private const val MAX_EVENT_SCORE = 100f
         private const val EVENT_MEMORY_MS = 10 * 60_000L

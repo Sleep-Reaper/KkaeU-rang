@@ -186,6 +186,63 @@ class DrowsinessCheckerTest {
         assertEquals(0, alarm.starts)
     }
 
+    // ── UI에 제공하는 값 ──
+
+    private val logMessages get() = checker.logs.value.map { it.message }
+
+    @Test fun sample_isPublishedEveryTick() {
+        src.speed = 77f
+        src.steer = 12f
+        tickN(1, 12f)
+        assertEquals(77f, checker.sample.value.speedKmh, 0.001f)
+        assertEquals(12f, checker.sample.value.steeringDeg, 0.001f)
+
+        src.speed = 55f
+        tickN(1, -3f)
+        assertEquals(55f, checker.sample.value.speedKmh, 0.001f)
+        assertEquals(-3f, checker.sample.value.steeringDeg, 0.001f)
+    }
+
+    @Test fun result_changesEveryTick_evenWhenScoreIsSame() {
+        tickVarying(1)
+        val first = result.timestamp
+        tickVarying(1)
+        assertTrue(result.timestamp > first)   // StateFlow가 같은 값으로 무시하지 않는다
+    }
+
+    @Test fun logs_recordEventsLevelChangeAndQuestion() {
+        tickVarying(30)
+        assertTrue("사건이 없으면 로그도 비어 있어야 한다", checker.logs.value.isEmpty())
+
+        cycle1()
+        assertTrue(logMessages.any { it == "핸들 조작 없음 10초 이상 (+15점)" })
+        assertTrue(logMessages.any { it == "핸들 고정 후 급조작 (+25점)" })
+        assertTrue(logMessages.any { it.startsWith("단계 변경: 정상 → 주의") })
+        assertTrue(logMessages.any { it == "운전자에게 질문" })
+    }
+
+    @Test fun logs_recordAlarmWindowAndNaviCalls() {
+        cycle1(); nextCycle(); nextCycle()
+        assertTrue(logMessages.contains("알람 시작"))
+        assertTrue(logMessages.contains("창문 열기, 졸음쉼터 안내 요청"))
+    }
+
+    @Test fun logs_keepAnswerLabelButNotSpokenText() {
+        cycle1()
+        voice.respond(VoiceAnswer("졸려요 제발", false, 1500L))
+        tickVarying(1)
+        assertTrue(logMessages.contains("운전자 응답: 졸림 인정"))
+        assertTrue("원문이 로그에 들어가면 안 된다", logMessages.none { it.contains("제발") })
+    }
+
+    @Test fun logs_areCappedAt100_keepingNewest() {
+        cycle1()
+        repeat(60) { nextCycle() }
+        assertEquals(100, checker.logs.value.size)
+        val times = checker.logs.value.map { it.time }
+        assertEquals(times.sorted(), times)    // 오래된 것이 앞
+    }
+
     @Test fun stop_cancelsVoiceAndAlarm() {
         checker.stop()
         assertEquals(1, voice.stopAllCount)

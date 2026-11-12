@@ -12,3 +12,9 @@ data class DrowsinessResult(
     val reasons: List<String> = emptyList(),
     val timestamp: Long = System.currentTimeMillis()
 )
+
+/** UI에 보여 주는 사건 로그 한 줄. [time]은 발생 시각(ms). */
+data class LogEntry(
+    val time: Long,
+    val message: String
+)
