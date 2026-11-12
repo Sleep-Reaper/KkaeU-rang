@@ -40,5 +40,5 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
-    implementation("ai.pleos.playground:Vehicle:2.3.1")
+    implementation("ai.pleos.playground:Vehicle:2.3.2")
 }
