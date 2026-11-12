@@ -92,6 +92,9 @@ class DrowsinessChecker(
         // 2) 연속 주행 시간 (P단이면 휴식으로 보고 초기화, 신호 대기(D단)는 유지)
         driveStartMs = if (s.isPark) null else (driveStartMs ?: now)
 
+        // 2-1) 경고 이상에서 P단으로 정차하면 휴식으로 보고 상태를 해제한다
+        if (s.isPark && lastLevel >= Level.WARNING) releaseOnPark(now)
+
         // 3) 이벤트 규칙 ①~④ — 시작된 순간에만 점수 추가
         if (DrowsinessRules.isSuddenCorrection(list)) addEvent(now, 25f, "핸들 고정 후 급조작")
         else if (justStarted(list, DrowsinessRules::isSteeringFrozen)) addEvent(now, 15f, "핸들 조작 없음 10초 이상")
@@ -155,8 +158,19 @@ class DrowsinessChecker(
             val last = lastWindowNaviMs
             if (last == null || now - last > WINDOW_NAVI_COOLDOWN_MS) {
                 note(now, "창문 열기, 졸음쉼터 안내 요청")
-                window.open()
-                navi.guideToRestArea()
+                voice.say(DANGER_GUIDE)   // 알람 → 음성 안내 → 창문 → 경유지 순서
+                window.open { ok ->
+                    if (!ok) {
+                        note(clock(), "창문 열기 실패 → 음성 안내로 대체")
+                        voice.say(WINDOW_FAIL_GUIDE)
+                    }
+                }
+                navi.guideToRestArea { ok ->
+                    if (!ok) {
+                        note(clock(), "졸음쉼터 안내 실패 → 음성 안내로 대체")
+                        voice.say(NAVI_FAIL_GUIDE)
+                    }
+                }
                 lastWindowNaviMs = now
             } else {
                 note(now, "창문·내비는 10분 안에 이미 실행했어 생략")
@@ -166,6 +180,24 @@ class DrowsinessChecker(
             note(now, "알람 중지")
             alarm.stop()
         }
+    }
+
+    /**
+     * 경고 이상 상태에서 P단이 되면 한 번 호출된다: 알람 중지 → 안내 → 이벤트 점수·강제 단계 초기화.
+     * (초기화 뒤 이번 틱의 점수는 기본 위험도만 남아 NORMAL이 되므로 다음 틱에 다시 호출되지 않는다)
+     */
+    private fun releaseOnPark(now: Long) {
+        note(now, "정차(P단) → 경고 해제")
+        if (asking) {
+            voice.stopAll()      // 취소되면 onResult가 오지 않으므로 상태를 직접 초기화한다
+            asking = false
+        }
+        alarm.stop()
+        voice.say(PARK_GUIDE)
+        eventScore = 0f
+        forcedLevel = Level.NORMAL
+        forcedUntil = 0L
+        recentEvents.clear()
     }
 
     // ── 운전자 질문 ──
@@ -252,7 +284,11 @@ class DrowsinessChecker(
 
     companion object {
         private const val TAG = "Kkaeu.Checker"
-        private const val QUESTION = "주행이 평소와 조금 달라요. 괜찮으세요?"
+        private const val DANGER_GUIDE = "매우 졸려 보여요. 창문을 열고 가까운 졸음쉼터로 안내할게요."
+    private const val WINDOW_FAIL_GUIDE = "창문을 열지 못했어요. 창문을 직접 열어 환기해 주세요."
+    private const val NAVI_FAIL_GUIDE = "졸음쉼터 안내에 실패했어요. 가까운 쉼터에서 쉬어 가세요."
+    private const val PARK_GUIDE = "잘 쉬고 출발하세요."
+    private const val QUESTION = "주행이 평소와 조금 달라요. 괜찮으세요?"
 
         private const val TICK_MS = 1000L
         private const val MAX_SAMPLES = 600

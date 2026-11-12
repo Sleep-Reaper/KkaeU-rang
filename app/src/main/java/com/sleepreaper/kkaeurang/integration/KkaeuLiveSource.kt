@@ -349,6 +349,9 @@ class KkaeuLiveSource(
             showThenIdle(null)
         }
 
+        /** 엔진의 안내 문구(위험 단계, 정차 해제, 창문·내비 실패 대체). 듣지 않고 말만 한다 */
+        override fun say(text: String) = voiceModule.speak(text)
+
         /**
          * 음성 대신 들어온 대답(화면 "괜찮아요" 버튼, 디버그 패널): 진행 중인 질문을 끊고 [answer]로 엔진에 넘긴다.
          * 질문 중이 아니면 false
@@ -436,20 +439,26 @@ class KkaeuLiveSource(
      * (지금 NoOpWindowModule이면 실제로 열리지 않으므로 화면에도 표시하지 않는다)
      */
     private inner class LiveWindow : WindowModule {
-        override fun open() {
-            window.open()
-            if (window is NoOpWindowModule) return
-            vehicleEventUntilMs = now() + VEHICLE_EVENT_SHOW_MS
-            _state.update {
-                it.copy(
-                    windowOpen = true,
-                    // TODO(integration): 창문 모듈에 되돌리기 기능이 생기면 canCancel = true + onCancelVehicleControl 연결
-                    vehicleEvent = VehicleControlEvent(
-                        message = appContext.getString(R.string.live_window_opened),
-                        canCancel = false,
-                        blockedReason = null,
-                    ),
-                )
+        override fun open() = open { }
+
+        /** 실패하면(NoOp 포함) 화면에 "열었어요"를 띄우지 않고, 엔진에 실패로 알려 음성 대체 안내를 하게 한다 */
+        override fun open(onResult: (Boolean) -> Unit) {
+            window.open { ok ->
+                if (ok) {
+                    vehicleEventUntilMs = now() + VEHICLE_EVENT_SHOW_MS
+                    _state.update {
+                        it.copy(
+                            windowOpen = true,
+                            // TODO(integration): 창문 모듈에 되돌리기 기능이 생기면 canCancel = true + onCancelVehicleControl 연결
+                            vehicleEvent = VehicleControlEvent(
+                                message = appContext.getString(R.string.live_window_opened),
+                                canCancel = false,
+                                blockedReason = null,
+                            ),
+                        )
+                    }
+                }
+                onResult(ok)
             }
         }
     }
@@ -461,6 +470,8 @@ class KkaeuLiveSource(
      */
     private inner class LiveNavi : NaviModule {
         override fun guideToRestArea() = navi.guideToRestArea()
+
+        override fun guideToRestArea(onResult: (Boolean) -> Unit) = navi.guideToRestArea(onResult)
     }
 
     // ───────────────────────── KkaeuActions (화면 → 모듈) ─────────────────────────

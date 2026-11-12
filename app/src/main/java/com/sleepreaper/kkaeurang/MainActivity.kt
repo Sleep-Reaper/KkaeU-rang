@@ -10,6 +10,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -120,7 +121,10 @@ class MainActivity : ComponentActivity() {
                     AppMode.LIVE, AppMode.LIVE_SIMULATED -> {
                         // 서비스가 엔진을 만든 뒤에 source가 생긴다 (그 전이나 서비스 종료 후에는 null)
                         val source by KkaeuRuntime.source.collectAsState()
-                        source?.let { live ->
+                        val live = source
+                        if (live == null) {
+                            PreparingScreen()
+                        } else {
                             val state by live.state.collectAsState()
                             KkaeuApp(
                                 state = state,
@@ -187,6 +191,14 @@ class MainActivity : ComponentActivity() {
         // 엔진과 음성은 서비스가 들고 있으므로 여기서 멈추지 않는다 (화면을 닫아도 계속 감시)
         if (APP_MODE == AppMode.VOICE_TEST) voiceModule.release()
         super.onDestroy()
+    }
+}
+
+/** 서비스가 엔진을 만들기 전(권한 요청 중 포함)이나 서비스가 종료된 뒤에 보이는 화면 */
+@Composable
+private fun PreparingScreen() {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text(text = "졸음 감시 준비 중…", fontSize = 28.sp)
     }
 }
 
