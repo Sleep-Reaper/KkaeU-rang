@@ -18,7 +18,7 @@ import android.util.Log
  * - AAOS 표준 API: 차속, 기어
  * - Pleos Vehicle SDK: 핸들 각도, 방향지시등, 브레이크
  */
-class VehicleSignalCollector(private val context: Context) {
+class VehicleSignalCollector(private val context: Context) : SignalSource {
 
     // 최신값 저장 (리스너는 다른 스레드에서 불리므로 @Volatile)
     @Volatile var speedKmh = 0f;        private set
@@ -88,12 +88,15 @@ class VehicleSignalCollector(private val context: Context) {
         }
     }
 
-    fun start() {
+    override fun sample(now: Long) =
+        Sample(now, speedKmh, steeringDeg, turnSignalOn, brakeOn, isPark)
+
+    override fun start() {
         startAaos()
         startPleos()
     }
 
-    fun stop() {
+    override fun stop() {
         stopPleos()
         propertyManager?.unregisterCallback(carCallback)
         car?.disconnect()

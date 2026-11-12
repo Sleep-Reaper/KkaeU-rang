@@ -41,4 +41,5 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
     implementation("ai.pleos.playground:Vehicle:2.3.2")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")   // StateFlow
 }
