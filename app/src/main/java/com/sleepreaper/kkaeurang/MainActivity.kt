@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,6 +14,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -21,6 +23,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.sleepreaper.kkaeurang.ui.fake.FakeKkaeuStateSource
+import com.sleepreaper.kkaeurang.ui.screens.KkaeuApp
 import com.sleepreaper.kkaeurang.ui.theme.KkaeUrangTheme
 import com.sleepreaper.kkaeurang.voice.StopReason
 import com.sleepreaper.kkaeurang.voice.VoiceInputResult
@@ -28,12 +32,20 @@ import com.sleepreaper.kkaeurang.voice.VoiceModule
 
 private const val ASK_QUESTION = "주행이 평소와 조금 달라요. 괜찮으세요?"
 
+/** true로 바꾸면 깨우랑 UI 대신 기존 음성 모듈 테스트 화면을 띄운다 */
+private const val USE_VOICE_TEST_SCREEN = false
+
 /** "질문하고 듣기" 테스트 진행 상태 */
 enum class AskState { IDLE, ASKING, LISTENING }
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var voiceModule: VoiceModule
+
+    // 깨우랑 UI 상태 공급자 + 동작 처리 + 디버그 패널 조작 (지금은 Mock)
+    // TODO(integration): 실제 모듈 연동 시 KkaeuStateSource·KkaeuActions를 구현한 실제 클래스로 교체하고,
+    //  아래에서 만든 voiceModule(앱 전체에 1개)을 그 클래스에 넘겨준다. 디버그 패널이 필요 없으면 debugControls = null.
+    private val kkaeuSource: FakeKkaeuStateSource by viewModels()
 
     // 테스트 화면 상태 (VoiceModule 콜백은 메인 스레드로 오므로 바로 바꿔도 된다)
     private var askState by mutableStateOf(AskState.IDLE)
@@ -49,16 +61,25 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             KkaeUrangTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    VoiceTestScreen(
-                        askState = askState,
-                        lastResult = lastResult,
-                        alarmRunning = alarmRunning,
-                        alarmStopReason = alarmStopReason,
-                        onAskClick = { askAndListen() },
-                        onAlarmStartClick = { startAlarm() },
-                        onAlarmStopClick = { voiceModule.stopAlarm() },
-                        modifier = Modifier.padding(innerPadding)
+                if (USE_VOICE_TEST_SCREEN) {
+                    Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                        VoiceTestScreen(
+                            askState = askState,
+                            lastResult = lastResult,
+                            alarmRunning = alarmRunning,
+                            alarmStopReason = alarmStopReason,
+                            onAskClick = { askAndListen() },
+                            onAlarmStartClick = { startAlarm() },
+                            onAlarmStopClick = { voiceModule.stopAlarm() },
+                            modifier = Modifier.padding(innerPadding)
+                        )
+                    }
+                } else {
+                    val state by kkaeuSource.state.collectAsState()
+                    KkaeuApp(
+                        state = state,
+                        actions = kkaeuSource,
+                        debugControls = kkaeuSource,
                     )
                 }
             }

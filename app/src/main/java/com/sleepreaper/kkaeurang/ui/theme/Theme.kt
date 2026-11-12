@@ -1,57 +1,28 @@
 package com.sleepreaper.kkaeurang.ui.theme
 
-import android.app.Activity
-import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
 
-private val DarkColorScheme = darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleGrey80,
-    tertiary = Pink80
+private val KkaeuDarkColorScheme = darkColorScheme(
+    primary = KkaeuColors.LevelNormal,
+    onPrimary = KkaeuColors.OnLight,
+    secondary = KkaeuColors.LevelCaution,
+    onSecondary = KkaeuColors.OnLight,
+    background = KkaeuColors.Background,
+    onBackground = KkaeuColors.TextPrimary,
+    surface = KkaeuColors.Surface,
+    onSurface = KkaeuColors.TextPrimary,
+    surfaceVariant = KkaeuColors.SurfaceHigh,
+    onSurfaceVariant = KkaeuColors.TextSecondary,
+    outline = KkaeuColors.Outline,
 )
 
-private val LightColorScheme = lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40
-
-    /* Other default colors to override
-    background = Color(0xFFFFFBFE),
-    surface = Color(0xFFFFFBFE),
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onTertiary = Color.White,
-    onBackground = Color(0xFF1C1B1F),
-    onSurface = Color(0xFF1C1B1F),
-    */
-)
-
+/** 차량 환경이므로 시스템 설정과 상관없이 항상 다크·고대비 테마를 쓴다 */
 @Composable
-fun KkaeUrangTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    // Dynamic color is available on Android 12+
-    dynamicColor: Boolean = true,
-    content: @Composable () -> Unit
-) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
-    }
-
+fun KkaeUrangTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = colorScheme,
+        colorScheme = KkaeuDarkColorScheme,
         typography = Typography,
         content = content
     )

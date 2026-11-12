@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-
-    <style name="Theme.KkaeUrang" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- 차량 환경: 앱 시작 순간에도 흰 화면이 번쩍이지 않도록 어두운 창 배경 -->
+    <style name="Theme.KkaeUrang" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/kkaeu_background</item>
+    </style>
 </resources>

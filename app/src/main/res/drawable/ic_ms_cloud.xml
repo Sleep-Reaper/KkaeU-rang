@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Material Symbols Rounded "cloud" (weight 500, filled), Apache License 2.0, Google -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="960"
+    android:viewportHeight="960">
+    <group android:translateY="960">
+        <path
+            android:fillColor="@android:color/white"
+            android:pathData="M251.48-154.02q-90.15 0-153.57-63.06Q34.5-280.13 34.5-370.52q0-79.44 50.24-140.23 50.24-60.79 128.43-73.27 20.96-97.72 95.92-159.46 74.95-61.74 172.91-61.74 112.96 0 191.15 81.74 78.2 81.74 80.11 196.46v24q72.72.15 122.48 49.85 49.76 49.69 49.76 124.65 0 71.63-51.43 123.06-51.44 51.44-123.07 51.44H251.48Z" />
+    </group>
+</vector>
