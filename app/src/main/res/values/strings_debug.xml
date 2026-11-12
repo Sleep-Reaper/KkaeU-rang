@@ -23,6 +23,37 @@
     <string name="debug_gear_p">기어 P (주행 종료)</string>
     <string name="debug_reset">전체 초기화</string>
 
+    <!-- 실제 모드 디버그 패널 (LiveDebugPanel) -->
+    <string name="live_debug_title">🛠 엔진 디버그</string>
+    <string name="live_debug_score">점수 %1$d · %2$s</string>
+    <string name="live_debug_vehicle">D단 · %1$d km/h · 핸들 %2$.1f° · 깜빡이 %3$s · 브레이크 %4$s</string>
+    <string name="live_debug_vehicle_parked">P단 · %1$d km/h · 핸들 %2$.1f° · 깜빡이 %3$s · 브레이크 %4$s</string>
+    <string name="live_debug_on">ON</string>
+    <string name="live_debug_off">OFF</string>
+    <string name="live_debug_clock">엔진 시각 %1$s (+%2$d분)</string>
+    <string name="live_debug_real_signals">실제 차량 신호 사용 중 · 주행 시나리오는 가짜 신호 모드에서만</string>
+    <string name="live_debug_section_score">점수 직접 조절 (1초 안에 단계 반영)</string>
+    <string name="live_debug_score_reset">이벤트 점수 0으로</string>
+    <string name="live_debug_section_scenario">주행 시나리오 (가짜 차량 신호 → 엔진 규칙)</string>
+    <string name="live_debug_scn_frozen">① 핸들 고정 10초 +15</string>
+    <string name="live_debug_scn_jerk">①+② 고정 후 급조작 +40</string>
+    <string name="live_debug_scn_drift">③ 깜빡이 없이 쏠림 +15</string>
+    <string name="live_debug_scn_speed">④ 속도 불안정 +10 (약 30초)</string>
+    <string name="live_debug_scenario_running">재생 중: %1$s</string>
+    <string name="live_debug_turn_signal">방향지시등 켜기 (③ 막힘)</string>
+    <string name="live_debug_brake">브레이크 밟기 (④ 막힘)</string>
+    <string name="live_debug_section_time">시간 이동 (엔진 시계)</string>
+    <string name="live_debug_time_10m">+10분</string>
+    <string name="live_debug_time_1h">+1시간</string>
+    <string name="live_debug_time_risk">다음 위험 시간대(02시·14시)로</string>
+    <string name="live_debug_section_answer_asking">운전자 대답 · 질문 중이에요</string>
+    <string name="live_debug_section_answer_idle">운전자 대답 · 질문 중일 때만 동작</string>
+    <string name="live_debug_answer_okay">괜찮아</string>
+    <string name="live_debug_answer_sleepy">졸려 +30</string>
+    <string name="live_debug_answer_none">무응답</string>
+    <string name="live_debug_section_log">엔진 사건 로그 (최신이 위)</string>
+    <string name="live_debug_log_empty">아직 기록이 없어요</string>
+
     <!-- 데모 시나리오 단계 -->
     <string name="demo_step_1">1/6 정상 주행 · 적립 중</string>
     <string name="demo_step_2">2/6 이벤트 → 주의 · 질문</string>

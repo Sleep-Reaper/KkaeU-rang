@@ -14,6 +14,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.sleepreaper.kkaeurang.ui.debug.DebugPanel
 import com.sleepreaper.kkaeurang.ui.debug.KkaeuDebugControls
+import com.sleepreaper.kkaeurang.ui.debug.LiveDebugControls
+import com.sleepreaper.kkaeurang.ui.debug.LiveDebugPanel
 import com.sleepreaper.kkaeurang.ui.model.DrowsinessUiState
 import com.sleepreaper.kkaeurang.ui.state.KkaeuActions
 import com.sleepreaper.kkaeurang.ui.theme.KkaeuColors
@@ -31,7 +33,8 @@ fun screenFor(state: DrowsinessUiState): KkaeuScreen =
  * 깨우랑 UI 진입점. [state] 하나만 보고 그리고, 사용자 동작은 [actions]로만 내보낸다.
  * 화면 전환은 애니메이션 없이 즉시.
  *
- * @param debugControls null이면 디버그 패널이 열리지 않는다 (실제 모듈 연동·배포 시)
+ * @param debugControls 가짜 데이터용 디버그 패널. null이면 열리지 않는다
+ * @param liveDebugControls 실제 모드(판단 엔진 연결)용 디버그 패널. 둘 다 null이면 길게 눌러도 아무 일 없음 (배포 시)
  */
 @Composable
 fun KkaeuApp(
@@ -39,9 +42,11 @@ fun KkaeuApp(
     actions: KkaeuActions,
     debugControls: KkaeuDebugControls?,
     modifier: Modifier = Modifier,
+    liveDebugControls: LiveDebugControls? = null,
 ) {
     var debugOpen by rememberSaveable { mutableStateOf(false) }
-    val openDebug: (() -> Unit)? = debugControls?.let { { debugOpen = true } }
+    val openDebug: (() -> Unit)? =
+        if (debugControls != null || liveDebugControls != null) ({ debugOpen = true }) else null
 
     Surface(
         modifier = modifier.fillMaxSize(),
@@ -67,6 +72,11 @@ fun KkaeuApp(
                 DebugPanel(
                     controls = debugControls,
                     state = state,
+                    onClose = { debugOpen = false },
+                )
+            } else if (debugOpen && liveDebugControls != null) {
+                LiveDebugPanel(
+                    controls = liveDebugControls,
                     onClose = { debugOpen = false },
                 )
             }

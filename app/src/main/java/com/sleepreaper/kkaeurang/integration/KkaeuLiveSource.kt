@@ -20,6 +20,10 @@ import com.sleepreaper.kkaeurang.detector.SignalSource
 import com.sleepreaper.kkaeurang.detector.VehicleSignalCollector
 import com.sleepreaper.kkaeurang.detector.VoiceAnswer
 import com.sleepreaper.kkaeurang.detector.WindowModule
+import com.sleepreaper.kkaeurang.ui.debug.DebugAnswer
+import com.sleepreaper.kkaeurang.ui.debug.DriveScenario
+import com.sleepreaper.kkaeurang.ui.debug.LiveDebugControls
+import com.sleepreaper.kkaeurang.ui.debug.LiveDebugState
 import com.sleepreaper.kkaeurang.ui.model.AccrualState
 import com.sleepreaper.kkaeurang.ui.model.DrowsinessUiState
 import com.sleepreaper.kkaeurang.ui.model.DrowsyLevel
@@ -38,6 +42,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 /**
  * 실제 모듈을 UI에 연결하는 상태 공급자. (FakeKkaeuStateSource의 실제 버전)
@@ -56,9 +64,19 @@ class KkaeuLiveSource(
     signalSource: SignalSource = VehicleSignalCollector(context),
     private val window: WindowModule = NoOpWindowModule(),
     private val navi: NaviModule = NoOpNaviModule(),
-) : KkaeuStateSource, KkaeuActions {
+) : KkaeuStateSource, KkaeuActions, LiveDebugControls {
 
     private val appContext = context.applicationContext
+
+    /** 가짜 차량 신호면 디버그 패널에서 시나리오·기어를 조작할 수 있다 */
+    private val simulated = signalSource as? SimulatedSignalSource
+
+    /** 엔진과 이 클래스가 함께 쓰는 시계. 디버그 패널의 "시간 이동"은 [clockOffsetMs]만 바꾼다 */
+    private var clockOffsetMs = 0L
+    private fun now() = System.currentTimeMillis() + clockOffsetMs
+
+    private val _liveDebugState = MutableStateFlow(LiveDebugState(simulated = simulated != null))
+    override val liveDebugState: StateFlow<LiveDebugState> = _liveDebugState.asStateFlow()
     private val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     private val _state = MutableStateFlow(
@@ -79,6 +97,7 @@ class KkaeuLiveSource(
         alarm = alarm,
         window = LiveWindow(),
         navi = LiveNavi(),
+        clock = ::now,
     )
 
     // ── 주행 집계 (이번 주행 = P단에서 출발해 다시 P단이 될 때까지) ──
@@ -167,6 +186,22 @@ class KkaeuLiveSource(
                 isParked = parked,
             )
         }
+
+        _liveDebugState.update {
+            it.copy(
+                score = result.score,
+                level = level,
+                speedKmh = sample.speedKmh,
+                steeringDeg = sample.steeringDeg,
+                turnSignalOn = sample.turnSignalOn,
+                brakeOn = sample.brakeOn,
+                isPark = sample.isPark,
+                clockText = CLOCK_FORMAT.format(Date(now)),
+                clockOffsetMin = clockOffsetMs / 60_000,
+                isAsking = driverVoice.isAsking,
+                scenario = simulated?.runningScenario,
+            )
+        }
     }
 
     private fun nextAccrualState(cur: AccrualState, prevLevel: DrowsyLevel, level: DrowsyLevel, now: Long) = when {
@@ -190,8 +225,11 @@ class KkaeuLiveSource(
         lastLogSeen = logs.lastOrNull()
         for (entry in logs.drop(from)) {
             val m = SCORE_LOG.matchEntire(entry.message) ?: continue
-            eventCount++
+            if (!entry.message.startsWith(DEBUG_LOG_PREFIX)) eventCount++
             _state.update { it.copy(lastScoreChange = ScoreChange(m.groupValues[1], m.groupValues[2].toInt())) }
+        }
+        _liveDebugState.update { s ->
+            s.copy(logs = logs.takeLast(DEBUG_LOG_LINES).reversed().map { "${LOG_TIME_FORMAT.format(Date(it.time))}  ${it.message}" })
         }
     }
 
@@ -230,6 +268,8 @@ class KkaeuLiveSource(
         private var listeningAt = 0L
         private var resetJob: Job? = null
 
+        val isAsking get() = pending != null
+
         override fun ask(question: String, onResult: (VoiceAnswer) -> Unit) {
             pending = onResult
             resetJob?.cancel()
@@ -239,7 +279,7 @@ class KkaeuLiveSource(
             voiceModule.askAndListen(
                 question,
                 onListening = {
-                    listeningAt = System.currentTimeMillis()
+                    listeningAt = now()
                     _state.update { it.copy(voiceState = VoiceState.LISTENING) }
                 },
             ) { r ->
@@ -255,13 +295,30 @@ class KkaeuLiveSource(
             showThenIdle(null)
         }
 
-        /** 화면 "괜찮아요" 버튼: 진행 중인 질문을 끊고 '괜찮다'는 대답으로 엔진에 넘긴다 */
-        fun answerOkayFromButton(text: String): Boolean {
+        /**
+         * 음성 대신 들어온 대답(화면 "괜찮아요" 버튼, 디버그 패널): 진행 중인 질문을 끊고 [answer]로 엔진에 넘긴다.
+         * 질문 중이 아니면 false
+         */
+        fun answerInstead(answer: VoiceAnswer): Boolean {
             if (pending == null) return false
             voiceModule.stopAll()   // 진행 중 질문의 콜백은 버려진다
-            if (listeningAt > 0) responseTimesMs += System.currentTimeMillis() - listeningAt
-            deliver(VoiceAnswer(text = text, isTimeout = false, speechStartTimeMs = null), shownText = text)
+            if (listeningAt > 0 && answer.text != null) responseTimesMs += now() - listeningAt
+            deliver(answer, shownText = answer.text)
             return true
+        }
+
+        /**
+         * 음성 경고를 시작하기 직전에 부른다. 경고 문구(TTS)가 질문 음성을 덮어쓰면 질문 결과가 영영 오지 않아
+         * 엔진이 '질문 중'에 갇히고 이후 다시 묻지 않게 되므로, 질문을 끊고 엔진에는 인식 실패(판단 보류)로 알린다.
+         */
+        fun cancelForAlarm() {
+            val callback = pending ?: return
+            pending = null
+            resetJob?.cancel()
+            Log.d(TAG, "음성 경고 시작 → 진행 중인 질문 취소 (엔진에는 인식 실패로 전달)")
+            voiceModule.stopAll()   // 경고 시작 전이라 경고에는 영향 없음
+            _state.update { it.copy(voiceState = VoiceState.IDLE, recognizedText = null) }
+            callback(VoiceAnswer(text = null, isTimeout = false, speechStartTimeMs = null))
         }
 
         private fun deliver(answer: VoiceAnswer, shownText: String?) {
@@ -270,7 +327,7 @@ class KkaeuLiveSource(
             val response = DriverResponseClassifier.classify(answer)
             if (response == DriverResponse.NO_ANSWER) {
                 // 엔진은 무응답이면 WARNING 이상을 3분간 유지한다. 남은 시간 표시용으로 같은 기준을 둔다
-                forcedUntilMs = System.currentTimeMillis() + FORCED_MS
+                forcedUntilMs = now() + FORCED_MS
             }
             showThenIdle(
                 when (response) {
@@ -302,6 +359,7 @@ class KkaeuLiveSource(
     /** 엔진의 알람 = VoiceModule 음성 경고. 경고가 실제로 울리는 동안만 UI에 ALARM으로 보인다 */
     private inner class LiveAlarm : AlarmModule {
         override fun start() {
+            driverVoice.cancelForAlarm()
             voiceModule.startAlarm { reason ->
                 Log.d(TAG, "음성 경고 종료: $reason")
                 _state.update {
@@ -327,7 +385,7 @@ class KkaeuLiveSource(
         override fun open() {
             window.open()
             if (window is NoOpWindowModule) return
-            vehicleEventUntilMs = System.currentTimeMillis() + VEHICLE_EVENT_SHOW_MS
+            vehicleEventUntilMs = now() + VEHICLE_EVENT_SHOW_MS
             _state.update {
                 it.copy(
                     windowOpen = true,
@@ -355,7 +413,7 @@ class KkaeuLiveSource(
 
     override fun onAnswerOkay() {
         val text = appContext.getString(R.string.btn_okay)
-        if (driverVoice.answerOkayFromButton(text)) {
+        if (driverVoice.answerInstead(VoiceAnswer(text = text, isTimeout = false, speechStartTimeMs = null))) {
             Log.d(TAG, "괜찮아요 버튼 → 진행 중인 질문에 '괜찮음'으로 응답")
         } else if (voiceModule.isAlarmRunning) {
             // 질문 중이 아닐 때(경고 중) 누르면 운전자가 경고를 확인한 것으로 보고 경고음만 끈다.
@@ -394,6 +452,60 @@ class KkaeuLiveSource(
         _state.update { it.copy(warningSoundOn = on) }
     }
 
+    // ───────────────────────── LiveDebugControls (디버그 패널) ─────────────────────────
+
+    override fun adjustScore(delta: Int) = checker.debugAdjustEventScore(delta.toFloat())
+
+    override fun advanceTime(minutes: Int) {
+        clockOffsetMs += minutes * 60_000L
+        Log.d(TAG, "디버그: 시계 +${minutes}분 (누적 ${clockOffsetMs / 60_000}분)")
+    }
+
+    override fun jumpToRiskTime() {
+        val now = now()
+        if (DrowsinessRules.isRiskyHour(now)) return   // 이미 위험 시간대면 그대로
+        val today = Calendar.getInstance().apply {
+            timeInMillis = now
+            set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+        }
+        // 오늘 02시 → 오늘 14시 → 내일 02시 중 지금 이후 첫 번째
+        val target = listOf(0 to RISK_START_AM, 0 to RISK_START_PM, 1 to RISK_START_AM)
+            .map { (day, hour) ->
+                (today.clone() as Calendar).apply {
+                    add(Calendar.DAY_OF_MONTH, day)
+                    set(Calendar.HOUR_OF_DAY, hour)
+                }.timeInMillis
+            }
+            .first { it > now }
+        clockOffsetMs += target - now
+        Log.d(TAG, "디버그: 위험 시간대로 이동 → ${CLOCK_FORMAT.format(Date(now()))}")
+    }
+
+    override fun answer(answer: DebugAnswer) {
+        val voiceAnswer = when (answer) {
+            DebugAnswer.OKAY -> VoiceAnswer(DEBUG_TEXT_OKAY, isTimeout = false, speechStartTimeMs = null)
+            DebugAnswer.SLEEPY -> VoiceAnswer(DEBUG_TEXT_SLEEPY, isTimeout = false, speechStartTimeMs = null)
+            DebugAnswer.NO_ANSWER -> VoiceAnswer(null, isTimeout = true, speechStartTimeMs = null)
+        }
+        if (!driverVoice.answerInstead(voiceAnswer)) Log.d(TAG, "디버그: 질문 중이 아니라 대답 무시")
+    }
+
+    override fun runScenario(scenario: DriveScenario) {
+        simulated?.run(scenario)
+    }
+
+    override fun setParked(parked: Boolean) {
+        simulated?.setParked(parked)
+    }
+
+    override fun setTurnSignal(on: Boolean) {
+        simulated?.turnSignalOn = on
+    }
+
+    override fun setBrake(on: Boolean) {
+        simulated?.brakeOn = on
+    }
+
     private fun Level.toUi() = when (this) {
         Level.NORMAL -> DrowsyLevel.NORMAL
         Level.CAUTION -> DrowsyLevel.CAUTION
@@ -417,6 +529,16 @@ class KkaeuLiveSource(
         // DrowsinessChecker가 만드는 문장 형식 (엔진 문구가 바뀌면 여기도 맞춘다)
         const val REASON_LONG_DRIVE = "연속 주행"
         const val REASON_RISKY_HOUR = "졸음 위험 시간대"
-        val SCORE_LOG = Regex("""^(.+) \(\+(\d+)점\)$""")
+        val SCORE_LOG = Regex("""^(.+) \(([+-]\d+)점\)$""")
+        const val DEBUG_LOG_PREFIX = "디버그 "   // DrowsinessChecker.debugAdjustEventScore 로그
+
+        // 디버그 패널
+        const val DEBUG_LOG_LINES = 12
+        const val DEBUG_TEXT_OKAY = "괜찮아"
+        const val DEBUG_TEXT_SLEEPY = "졸려"
+        const val RISK_START_AM = 2     // DrowsinessRules.isRiskyHour: 02~04시, 14~15시
+        const val RISK_START_PM = 14
+        val CLOCK_FORMAT = SimpleDateFormat("M/d HH:mm:ss", Locale.KOREA)
+        val LOG_TIME_FORMAT = SimpleDateFormat("HH:mm:ss", Locale.KOREA)
     }
 }

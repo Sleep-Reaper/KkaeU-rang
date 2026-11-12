@@ -98,7 +98,7 @@ fun DebugPanel(
                 )
             }
 
-            Section(stringResource(R.string.debug_section_score, state.score.roundToInt(), stringResource(state.level.labelRes()))) {
+            DebugSection(stringResource(R.string.debug_section_score, state.score.roundToInt(), stringResource(state.level.labelRes()))) {
                 Slider(
                     value = state.score,
                     onValueChange = controls::setScore,
@@ -106,9 +106,9 @@ fun DebugPanel(
                 )
             }
 
-            Section(stringResource(R.string.debug_section_reason)) {
+            DebugSection(stringResource(R.string.debug_section_reason)) {
                 ReasonEvent.entries.chunked(2).forEach { row ->
-                    ButtonRow {
+                    DebugButtonRow {
                         row.forEach { event ->
                             DebugButton(
                                 text = stringResource(event.buttonLabelRes),
@@ -121,19 +121,19 @@ fun DebugPanel(
                 }
             }
 
-            Section(stringResource(R.string.debug_section_drive)) {
-                SwitchRow(stringResource(R.string.debug_risk_time), state.isRiskTimeZone, controls::setRiskTimeZone)
+            DebugSection(stringResource(R.string.debug_section_drive)) {
+                DebugSwitchRow(stringResource(R.string.debug_risk_time), state.isRiskTimeZone, controls::setRiskTimeZone)
                 DebugButton(
                     text = stringResource(R.string.debug_add_drive),
                     onClick = { controls.addContinuousDrive(30) },
                     filled = false,
                 )
-                SwitchRow(stringResource(R.string.debug_gear_p), state.isParked, controls::setParked)
+                DebugSwitchRow(stringResource(R.string.debug_gear_p), state.isParked, controls::setParked)
             }
 
-            Section(stringResource(R.string.debug_section_voice)) {
+            DebugSection(stringResource(R.string.debug_section_voice)) {
                 VoiceState.entries.chunked(VOICE_BUTTONS_PER_ROW).forEach { row ->
-                    ButtonRow {
+                    DebugButtonRow {
                         row.forEach { voice ->
                             DebugButton(
                                 text = voice.name,
@@ -145,11 +145,11 @@ fun DebugPanel(
                         repeat(VOICE_BUTTONS_PER_ROW - row.size) { Box(Modifier.weight(1f)) }
                     }
                 }
-                SwitchRow(stringResource(R.string.debug_alarm), state.isAlarmRunning, controls::setAlarm)
+                DebugSwitchRow(stringResource(R.string.debug_alarm), state.isAlarmRunning, controls::setAlarm)
             }
 
-            Section(stringResource(R.string.debug_section_vehicle)) {
-                ButtonRow {
+            DebugSection(stringResource(R.string.debug_section_vehicle)) {
+                DebugButtonRow {
                     DebugButton(
                         stringResource(R.string.debug_vehicle_window),
                         { controls.triggerVehicleControl(blockedByRain = false) },
@@ -165,8 +165,8 @@ fun DebugPanel(
                 }
             }
 
-            Section(stringResource(R.string.debug_section_rest)) {
-                ButtonRow {
+            DebugSection(stringResource(R.string.debug_section_rest)) {
+                DebugButtonRow {
                     DebugButton(stringResource(R.string.debug_rest_add), { controls.setRestStop(true) }, Modifier.weight(1f), filled = false)
                     DebugButton(stringResource(R.string.debug_rest_remove), { controls.setRestStop(false) }, Modifier.weight(1f), filled = false)
                 }
@@ -181,7 +181,7 @@ fun DebugPanel(
 private const val VOICE_BUTTONS_PER_ROW = 3
 
 @Composable
-private fun Section(title: String, content: @Composable () -> Unit) {
+internal fun DebugSection(title: String, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         HorizontalDivider(color = KkaeuColors.Outline)
         Text(
@@ -194,7 +194,7 @@ private fun Section(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun ButtonRow(content: @Composable RowScope.() -> Unit) {
+internal fun DebugButtonRow(content: @Composable RowScope.() -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -203,7 +203,7 @@ private fun ButtonRow(content: @Composable RowScope.() -> Unit) {
 }
 
 @Composable
-private fun SwitchRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+internal fun DebugSwitchRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -214,7 +214,7 @@ private fun SwitchRow(label: String, checked: Boolean, onCheckedChange: (Boolean
 }
 
 @Composable
-private fun DebugButton(
+internal fun DebugButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,

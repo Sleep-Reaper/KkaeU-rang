@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
 import com.sleepreaper.kkaeurang.integration.KkaeuLiveSource
+import com.sleepreaper.kkaeurang.integration.SimulatedSignalSource
 import com.sleepreaper.kkaeurang.ui.fake.FakeKkaeuStateSource
 import com.sleepreaper.kkaeurang.ui.screens.KkaeuApp
 import com.sleepreaper.kkaeurang.ui.theme.KkaeUrangTheme
@@ -39,13 +40,17 @@ private const val TAG = "Kkaeu.Main"
 
 /** 화면에 무엇을 띄울지 */
 private enum class AppMode {
-    LIVE,        // 실제 모듈 연결: 판단 엔진 + 음성 + 차량 신호 → 깨우랑 UI
-    FAKE_DEMO,   // 가짜 데이터로 UI만 시연 (디버그 패널·데모 시나리오 사용 가능, 엔진은 돌지 않음)
-    VOICE_TEST,  // 기존 음성 모듈 테스트 화면
+    LIVE,            // 실차: 판단 엔진 + 음성 + 실제 차량 신호 → 깨우랑 UI
+    LIVE_SIMULATED,  // 에뮬레이터: 판단 엔진 + 음성은 실제, 차량 신호만 가짜 (엔진 디버그 패널로 주행 시나리오 재생)
+    FAKE_DEMO,       // 가짜 데이터로 UI만 시연 (디버그 패널·데모 시나리오 사용 가능, 엔진은 돌지 않음)
+    VOICE_TEST,      // 기존 음성 모듈 테스트 화면
 }
 
-/** 시연·개발 때 여기만 바꾼다 */
-private val APP_MODE = AppMode.LIVE
+/** 시연·개발 때 여기만 바꾼다. 실차에서는 LIVE */
+private val APP_MODE = AppMode.LIVE_SIMULATED
+
+/** 실제 모드(LIVE·LIVE_SIMULATED)에서 계기판을 길게 누르면 엔진 디버그 패널을 연다. 배포 때는 false */
+private const val LIVE_DEBUG_PANEL = true
 
 // 차량 신호 수집에 필요한 실행 중 권한 (Manifest에도 선언되어 있어야 함)
 private val CAR_PERMISSIONS = arrayOf(
@@ -87,20 +92,33 @@ class MainActivity : ComponentActivity() {
         voiceModule = VoiceModule(this)
         voiceModule.init()
 
-        if (APP_MODE == AppMode.LIVE) {
-            // 창문·내비 모듈이 생기면 KkaeuLiveSource(window = ..., navi = ...)로 넘긴다
-            liveSource = KkaeuLiveSource(this, voiceModule, lifecycleScope)
-            permissionLauncher.launch(CAR_PERMISSIONS)
+        // 창문·내비 모듈이 생기면 KkaeuLiveSource(window = ..., navi = ...)로 넘긴다
+        when (APP_MODE) {
+            AppMode.LIVE -> {
+                liveSource = KkaeuLiveSource(this, voiceModule, lifecycleScope)
+                permissionLauncher.launch(CAR_PERMISSIONS)
+            }
+            AppMode.LIVE_SIMULATED -> {
+                // 가짜 차량 신호는 차량 권한이 필요 없으므로 바로 시작한다
+                liveSource = KkaeuLiveSource(this, voiceModule, lifecycleScope, signalSource = SimulatedSignalSource())
+                startDrowsinessChecker()
+            }
+            else -> Unit
         }
 
         enableEdgeToEdge()
         setContent {
             KkaeUrangTheme {
                 when (APP_MODE) {
-                    AppMode.LIVE -> {
+                    AppMode.LIVE, AppMode.LIVE_SIMULATED -> {
                         val source = requireNotNull(liveSource)
                         val state by source.state.collectAsState()
-                        KkaeuApp(state = state, actions = source, debugControls = null)
+                        KkaeuApp(
+                            state = state,
+                            actions = source,
+                            debugControls = null,
+                            liveDebugControls = source.takeIf { LIVE_DEBUG_PANEL },
+                        )
                     }
                     AppMode.FAKE_DEMO -> {
                         val state by fakeSource.state.collectAsState()

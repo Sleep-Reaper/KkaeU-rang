@@ -206,6 +206,18 @@ class DrowsinessChecker(
         }
     }
 
+    /**
+     * 디버그 전용: 이벤트 점수를 직접 더하거나 뺀다. (실차가 아닌 환경에서 단계 전환을 확인하는 용도)
+     * 단계 변경과 그에 따른 질문·알람은 다음 틱(1초 안)에 평소처럼 일어난다.
+     */
+    fun debugAdjustEventScore(delta: Float) {
+        val now = clock()
+        val before = eventScore
+        eventScore = (eventScore + delta).coerceIn(0f, MAX_EVENT_SCORE)
+        val applied = (eventScore - before).roundToInt()
+        note(now, "디버그 점수 조절 (${if (applied >= 0) "+" else ""}${applied}점)")
+    }
+
     private fun addEvent(now: Long, point: Float, msg: String) {
         eventScore = (eventScore + point).coerceAtMost(MAX_EVENT_SCORE)
         recentEvents.addLast(now to msg)
