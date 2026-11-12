@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
 import com.sleepreaper.kkaeurang.integration.KkaeuLiveSource
 import com.sleepreaper.kkaeurang.integration.SimulatedSignalSource
+import com.sleepreaper.kkaeurang.integration.SimulatedWindowModule
 import com.sleepreaper.kkaeurang.ui.fake.FakeKkaeuStateSource
 import com.sleepreaper.kkaeurang.ui.screens.KkaeuApp
 import com.sleepreaper.kkaeurang.ui.theme.KkaeUrangTheme
@@ -49,7 +50,7 @@ private enum class AppMode {
 /** 시연·개발 때 여기만 바꾼다. 실차에서는 LIVE */
 private val APP_MODE = AppMode.LIVE_SIMULATED
 
-/** 실제 모드(LIVE·LIVE_SIMULATED)에서 계기판을 길게 누르면 엔진 디버그 패널을 연다. 배포 때는 false */
+/** 실제 모드(LIVE·LIVE_SIMULATED)에서 로고(헤더 가운데)나 계기판을 길게 누르면 엔진 디버그 패널을 연다. 배포 때는 false */
 private const val LIVE_DEBUG_PANEL = true
 
 // 차량 신호 수집에 필요한 실행 중 권한 (Manifest에도 선언되어 있어야 함)
@@ -100,7 +101,11 @@ class MainActivity : ComponentActivity() {
             }
             AppMode.LIVE_SIMULATED -> {
                 // 가짜 차량 신호는 차량 권한이 필요 없으므로 바로 시작한다
-                liveSource = KkaeuLiveSource(this, voiceModule, lifecycleScope, signalSource = SimulatedSignalSource())
+                liveSource = KkaeuLiveSource(
+                    this, voiceModule, lifecycleScope,
+                    signalSource = SimulatedSignalSource(),
+                    window = SimulatedWindowModule(),   // 위험 단계의 "창문 열림" 화면까지 확인할 수 있게
+                )
                 startDrowsinessChecker()
             }
             else -> Unit

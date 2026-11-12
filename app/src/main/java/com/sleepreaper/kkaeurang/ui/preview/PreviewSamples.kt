@@ -4,9 +4,11 @@ import androidx.compose.ui.tooling.preview.Preview
 import com.sleepreaper.kkaeurang.ui.model.AccrualState
 import com.sleepreaper.kkaeurang.ui.model.DrowsinessUiState
 import com.sleepreaper.kkaeurang.ui.model.DrowsyLevel
+import com.sleepreaper.kkaeurang.ui.model.LifetimeStats
 import com.sleepreaper.kkaeurang.ui.model.RestStopInfo
 import com.sleepreaper.kkaeurang.ui.model.RestStopType
 import com.sleepreaper.kkaeurang.ui.model.ScoreChange
+import com.sleepreaper.kkaeurang.ui.model.SleepCondition
 import com.sleepreaper.kkaeurang.ui.model.TripReport
 import com.sleepreaper.kkaeurang.ui.model.VehicleControlEvent
 import com.sleepreaper.kkaeurang.ui.model.VoiceState
@@ -16,19 +18,15 @@ import com.sleepreaper.kkaeurang.ui.state.KkaeuActions
  * Pleos Connect 에뮬레이터 (2560x1440, mdpi)에서 실제 앱 영역 크기.
  * 왼쪽 차량 패널·위 상태바·아래 독을 뺀 약 1680x1210dp (에뮬레이터 캡처로 확인)
  */
-@Preview(widthDp = 1680, heightDp = 1210, showBackground = true, backgroundColor = 0xFF0A0D12)
+@Preview(widthDp = 1707, heightDp = 1208, showBackground = true, backgroundColor = 0xFF1B2352)
 annotation class LandscapePreview
 
 /** 화면 분할(세로 반쪽) 확인용 */
-@Preview(widthDp = 840, heightDp = 1210, showBackground = true, backgroundColor = 0xFF0A0D12)
+@Preview(widthDp = 840, heightDp = 1208, showBackground = true, backgroundColor = 0xFF1B2352)
 annotation class SplitPreview
 
-/** 사이드 패널 블록 하나만 볼 때 (가로 전체 화면에서 사이드 패널 폭) */
-@Preview(widthDp = 680, showBackground = true, backgroundColor = 0xFF0A0D12)
-annotation class SidePreview
-
-/** 계기판만 볼 때 */
-@Preview(widthDp = 1400, heightDp = 400, showBackground = true, backgroundColor = 0xFF0A0D12)
+/** 계기판만 볼 때 (네 단계 나란히) */
+@Preview(widthDp = 2600, heightDp = 400, showBackground = true, backgroundColor = 0xFF1B2352)
 annotation class DialPreview
 
 /** 미리보기용 아무것도 안 하는 동작 */
@@ -39,6 +37,8 @@ object NoOpKkaeuActions : KkaeuActions {
     override fun onCancelVehicleControl() = Unit
     override fun onCloseTripReport() = Unit
     override fun onToggleWarningSound() = Unit
+    override fun onVoiceAnswer() = Unit
+    override fun onFindRestStop() = Unit
 }
 
 /** 미리보기 전용 샘플 데이터 (앱 화면 문구는 strings.xml, 여기 문장은 판단 엔진이 내려줄 값을 흉내 낸 것) */
@@ -71,13 +71,16 @@ object PreviewSamples {
     )
 
     val normal = DrowsinessUiState.Initial.copy(
-        score = 18f,
         continuousDriveMin = 102,
         isRiskTimeZone = true,
-        totalPoints = 12_450,
+        totalPoints = 12_850,
         tripPoints = 102,
         awakeMinutes = 102,
         tripDriveMinutes = 102,
+        score = 8f,
+        safetyHistory = listOf(88, 91, 93, 90, 96, 92, 89, 86),
+        lifetime = LifetimeStats(totalDriveMinutes = 278 * 60, totalDistanceKm = 12_430f, averageSafetyScore = 93),
+        sleep = SleepCondition(sleepStartMs = 1_760_200_200_000L, sleepMinutes = 440, awakeMinutes = 180),
     )
 
     val cautionAsking = normal.copy(
@@ -123,12 +126,17 @@ object PreviewSamples {
 
     val warningForced = warning.copy(score = 52f, forcedWarningRemainSec = 161, vehicleEvent = null)
 
+    val warningListening = warning.copy(voiceState = VoiceState.LISTENING, isAlarmRunning = false)
+
     val critical = warning.copy(
         score = 86f,
         level = DrowsyLevel.CRITICAL,
         vehicleEvent = null,
-        restStop = restStop,
+        windowOpen = true,
+        restStop = restStop.copy(name = "청주 휴게소", distanceKm = 8.2f, isWaypointAdded = true),
     )
+
+    val criticalNoWindow = critical.copy(windowOpen = false, restStop = null)
 
     val tripReport = TripReport(
         driveMinutes = 140,

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 깨우랑 자체 아이콘: 선물 상자 (혜택) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M3,9a1.5,1.5 0,0 1,1.5 -1.5H11.1V11.6H3z" />
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M12.9,7.5H19.5a1.5,1.5 0,0 1,1.5 1.5V11.6H12.9z" />
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M4,12.9H11.1V21H5.5a1.5,1.5 0,0 1,-1.5 -1.5z" />
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M12.9,12.9H20V19.5a1.5,1.5 0,0 1,-1.5 1.5H12.9z" />
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M12,7.2C10.6,3.6 6.6,3.4 6.9,5.8C7.1,7.1 9.4,7.3 12,7.2z" />
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M12,7.2C13.4,3.6 17.4,3.4 17.1,5.8C16.9,7.1 14.6,7.3 12,7.2z" />
+</vector>

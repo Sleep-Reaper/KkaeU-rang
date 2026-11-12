@@ -1,12 +1,13 @@
 package com.sleepreaper.kkaeurang.ui.model
 
+
 /** 졸음 단계. 점수 → 단계 경계값은 [DrowsyThresholds]에 모아 둔다 */
 enum class DrowsyLevel { NORMAL, CAUTION, WARNING, CRITICAL }
 
 /** 음성 질문 진행 상태 (VoicePanel이 이 값만 보고 그린다) */
 enum class VoiceState { IDLE, ASKING, LISTENING, RESULT, NO_RESPONSE, FAILED, ALARM }
 
-/** 포인트 적립 상태 (RewardStrip 표시용) */
+/** 포인트 적립 상태 (주행 리포트·적립 계산용) */
 enum class AccrualState { ACCRUING, PAUSED, RESUMED, HIDDEN }
 
 /** 현재 날씨 (메인 화면 왼쪽 아래 아이콘) */
@@ -42,7 +43,21 @@ data class TripReport(
     val restCount: Int,
 )
 
-/** 마지막으로 점수가 바뀐 이유와 변화량 (계기판 아래 "마지막 점수 로그") */
+/** 수면 기록 (홈 "현재 컨디션" 카드) */
+data class SleepCondition(
+    val sleepStartMs: Long,        // 잠든 시각
+    val sleepMinutes: Int,         // 잔 시간
+    val awakeMinutes: Int,         // 일어난 뒤 지난 시간
+)
+
+/** 지금까지 모든 주행을 합친 기록 (홈 "나의 주행 로그" 카드) */
+data class LifetimeStats(
+    val totalDriveMinutes: Int,
+    val totalDistanceKm: Float,
+    val averageSafetyScore: Int?,  // 안전 점수 평균 (기록이 없으면 null)
+)
+
+/** 마지막으로 점수가 바뀐 이유와 변화량 (엔진 사건 로그에서 뽑은 값) */
 data class ScoreChange(
     val reason: String,            // "핸들을 고정하다 갑자기 크게 꺾었어요"
     val delta: Int,                // +25, -21 …
@@ -77,7 +92,18 @@ data class DrowsinessUiState(
     val windowOpen: Boolean = false,
     val outsideAirOn: Boolean = false,
     val weather: Weather = Weather.PARTLY_CLOUDY,
+    /** 이번 주행의 안전 점수 기록 (오래된 것부터, 일정 간격으로 쌓음). 홈 "이번 주행 점수 로그" 그래프 */
+    val safetyHistory: List<Int> = emptyList(),
+    val lifetime: LifetimeStats = LifetimeStats(0, 0f, null),
+    // TODO(integration): 수면 기록(웨어러블·직접 입력 등)이 생기면 채운다. null이면 카드에 "기록 없음"
+    val sleep: SleepCondition? = null,
 ) {
+    /**
+     * 화면에 보여 주는 안전 점수 (높을수록 안전). 판단 엔진의 졸음 점수(높을수록 위험)를 뒤집은 값이다.
+     * 단계 경계: 졸음 40·70·80 ↔ 안전 60·30·20
+     */
+    val safetyScore: Int get() = DrowsyThresholds.safetyOf(score)
+
     companion object {
         /** 아무 일도 없는 주행 시작 상태 */
         val Initial = DrowsinessUiState(

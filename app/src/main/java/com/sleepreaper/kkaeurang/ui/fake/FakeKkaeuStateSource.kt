@@ -14,9 +14,11 @@ import com.sleepreaper.kkaeurang.ui.model.AccrualState
 import com.sleepreaper.kkaeurang.ui.model.DrowsinessUiState
 import com.sleepreaper.kkaeurang.ui.model.DrowsyLevel
 import com.sleepreaper.kkaeurang.ui.model.DrowsyThresholds
+import com.sleepreaper.kkaeurang.ui.model.LifetimeStats
 import com.sleepreaper.kkaeurang.ui.model.RestStopInfo
 import com.sleepreaper.kkaeurang.ui.model.RestStopType
 import com.sleepreaper.kkaeurang.ui.model.ScoreChange
+import com.sleepreaper.kkaeurang.ui.model.SleepCondition
 import com.sleepreaper.kkaeurang.ui.model.TripReport
 import com.sleepreaper.kkaeurang.ui.model.VehicleControlEvent
 import com.sleepreaper.kkaeurang.ui.model.VoiceState
@@ -171,6 +173,17 @@ class FakeKkaeuStateSource(application: Application) :
             else -> Unit
         }
 
+        if (r.tripDriveMinutes % HISTORY_EVERY_MIN == 0) {
+            r = r.copy(safetyHistory = (r.safetyHistory + r.safetyScore).takeLast(MAX_HISTORY))
+        }
+        r = r.copy(
+            lifetime = r.lifetime.copy(
+                totalDriveMinutes = r.lifetime.totalDriveMinutes + 1,
+                totalDistanceKm = r.lifetime.totalDistanceKm + FAKE_KM_PER_MIN,
+            ),
+            sleep = r.sleep?.let { it.copy(awakeMinutes = it.awakeMinutes + 1) },
+        )
+
         r.forcedWarningRemainSec?.let { sec -> r = r.copy(forcedWarningRemainSec = (sec - 1).takeIf { it > 0 }) }
         if (r.vehicleEvent != null && --vehicleEventTicksLeft <= 0) r = r.copy(vehicleEvent = null)
         r
@@ -273,6 +286,29 @@ class FakeKkaeuStateSource(application: Application) :
     override fun onToggleWarningSound() {
         Log.d(TAG, "onToggleWarningSound")
         update { it.copy(warningSoundOn = !it.warningSoundOn) }
+    }
+
+    /** 경고 단계 "음성으로 답하기": 알람을 멈추고 듣는 척하다가 2초 뒤 "괜찮아"로 응답 */
+    override fun onVoiceAnswer() {
+        Log.d(TAG, "onVoiceAnswer")
+        val s = _state.value
+        if (s.level < DrowsyLevel.WARNING || s.voiceState in ASKING_STATES) return
+        voiceJob?.cancel()
+        responseStartAt = now()
+        update { it.copy(isAlarmRunning = false, voiceState = VoiceState.ASKING, voiceQuestion = str(R.string.warning_voice_prompt)) }
+        voiceJob = viewModelScope.launch {
+            delay(ASK_MS)
+            responseStartAt = now()
+            update { it.copy(voiceState = VoiceState.LISTENING) }
+            delay(VOICE_ANSWER_MS)
+            handleAnswer(str(R.string.fake_voice_answer))
+        }
+    }
+
+    /** "근처 쉼터 찾기": 가까운 쉼터를 경유지로 추가 */
+    override fun onFindRestStop() {
+        Log.d(TAG, "onFindRestStop")
+        update { it.copy(restStop = (it.restStop ?: sampleRestStop()).copy(isWaypointAdded = true)) }
     }
 
     // ───────────────────────── KkaeuDebugControls ─────────────────────────
@@ -471,9 +507,23 @@ class FakeKkaeuStateSource(application: Application) :
         vehicleEventTicksLeft = 0
     }
 
-    /** 메인 화면 오른쪽 아래는 가장 가까운 쉼터를 늘 보여 주므로 처음부터 하나 둔다 */
+    /** 시연용 시작 상태: 디자인 시안과 비슷한 값 (가까운 쉼터·점수 그래프·누적 기록·수면 기록) */
     private fun drivingStartState(totalPoints: Int) =
-        DrowsinessUiState.Initial.copy(score = 12f, totalPoints = totalPoints, restStop = sampleRestStop())
+        DrowsinessUiState.Initial.copy(
+            score = 8f,
+            totalPoints = totalPoints,
+            restStop = sampleRestStop(),
+            continuousDriveMin = 72,
+            tripDriveMinutes = 72,
+            awakeMinutes = 72,
+            safetyHistory = SAMPLE_HISTORY,
+            lifetime = LifetimeStats(totalDriveMinutes = 278 * 60, totalDistanceKm = 12_430f, averageSafetyScore = 93),
+            sleep = SleepCondition(
+                sleepStartMs = System.currentTimeMillis() - (3 * 60 + 440) * 60_000L,
+                sleepMinutes = 440,
+                awakeMinutes = 180,
+            ),
+        )
 
     private fun windowOpenedEvent() = VehicleControlEvent(
         message = str(R.string.fake_window_opened),
@@ -497,7 +547,7 @@ class FakeKkaeuStateSource(application: Application) :
     private companion object {
         const val TAG = "KkaeuFake"
 
-        const val START_TOTAL_POINTS = 12_450
+        const val START_TOTAL_POINTS = 12_850
         const val MAX_REASONS = 3
 
         const val TICK_MS = 1_000L
@@ -514,5 +564,11 @@ class FakeKkaeuStateSource(application: Application) :
         const val FORCED_WARNING_SEC = 180
 
         val ASKING_STATES = setOf(VoiceState.ASKING, VoiceState.LISTENING, VoiceState.NO_RESPONSE)
+
+        const val VOICE_ANSWER_MS = 2_000L
+        const val HISTORY_EVERY_MIN = 10        // 그래프 점 간격 (시연 시간으로 10분 = 실제 10초)
+        const val MAX_HISTORY = 24
+        const val FAKE_KM_PER_MIN = 1.5f        // 시속 90km
+        val SAMPLE_HISTORY = listOf(88, 91, 93, 90, 96, 92, 89, 86)
     }
 }

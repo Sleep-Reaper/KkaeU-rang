@@ -27,6 +27,8 @@ import com.sleepreaper.kkaeurang.ui.debug.LiveDebugState
 import com.sleepreaper.kkaeurang.ui.model.AccrualState
 import com.sleepreaper.kkaeurang.ui.model.DrowsinessUiState
 import com.sleepreaper.kkaeurang.ui.model.DrowsyLevel
+import com.sleepreaper.kkaeurang.ui.model.DrowsyThresholds
+import com.sleepreaper.kkaeurang.ui.model.LifetimeStats
 import com.sleepreaper.kkaeurang.ui.model.ScoreChange
 import com.sleepreaper.kkaeurang.ui.model.TripReport
 import com.sleepreaper.kkaeurang.ui.model.VehicleControlEvent
@@ -46,6 +48,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlin.math.roundToInt
 
 /**
  * 실제 모듈을 UI에 연결하는 상태 공급자. (FakeKkaeuStateSource의 실제 버전)
@@ -53,7 +56,7 @@ import java.util.Locale
  * - 판단 엔진 [DrowsinessChecker]의 점수·단계·근거·차량 샘플·사건 로그 → [DrowsinessUiState]
  * - 엔진이 부르는 음성/알람/창문/내비 인터페이스를 얇게 감싸서, 호출될 때 UI 상태도 같이 바꾼다
  *   (팀원 코드는 고치지 않고 이 파일에서만 연결한다)
- * - 포인트 적립, 연속·총 주행 시간, 주행 리포트는 엔진에 없으므로 여기서 계산한다
+ * - 포인트 적립, 연속·총 주행 시간, 주행 리포트, 안전 점수 기록(그래프), 누적 주행 기록은 엔진에 없으므로 여기서 계산한다
  *
  * 모든 호출과 상태 변경은 메인 스레드에서 일어난다. ([scope]는 메인 디스패처여야 한다)
  */
@@ -79,11 +82,19 @@ class KkaeuLiveSource(
     override val liveDebugState: StateFlow<LiveDebugState> = _liveDebugState.asStateFlow()
     private val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
+    // ── 누적 주행 기록 (모든 주행 합계, 앱을 꺼도 남는다) ──
+    private var lifeDriveMs = prefs.getLong(KEY_LIFE_DRIVE_MS, 0L)
+    private var lifeDistanceKm = prefs.getFloat(KEY_LIFE_DISTANCE_KM, 0f)
+    private var lifeScoreSum = prefs.getFloat(KEY_LIFE_SCORE_SUM, 0f)      // 안전 점수 × 초
+    private var lifeScoreSec = prefs.getFloat(KEY_LIFE_SCORE_SEC, 0f)
+    private var lifeSavedAtMs = 0L
+
     private val _state = MutableStateFlow(
         DrowsinessUiState.Initial.copy(
             totalPoints = prefs.getInt(KEY_TOTAL_POINTS, 0),
             warningSoundOn = prefs.getBoolean(KEY_WARNING_SOUND, true),
             isParked = true,
+            lifetime = lifetimeStats(),
         )
     )
     override val state: StateFlow<DrowsinessUiState> = _state.asStateFlow()
@@ -112,6 +123,7 @@ class KkaeuLiveSource(
     private val responseTimesMs = mutableListOf<Long>()
 
     private var resumedUntilMs = 0L
+    private var lastHistoryMs: Long? = null     // 안전 점수 기록(그래프)에 마지막으로 점을 찍은 시각
     private var forcedUntilMs = 0L
     private var vehicleEventUntilMs = 0L
     private var lastLogSeen: LogEntry? = null
@@ -165,6 +177,16 @@ class KkaeuLiveSource(
             (accrual == AccrualState.ACCRUING || accrual == AccrualState.RESUMED)
         if (accruing) awakeMs += dt
 
+        val safety = DrowsyThresholds.safetyOf(result.score.toFloat())
+        val history = if (!parked && (lastHistoryMs?.let { now - it >= HISTORY_EVERY_MS } != false)) {
+            lastHistoryMs = now
+            (prev.safetyHistory + safety).takeLast(MAX_HISTORY)
+        } else {
+            prev.safetyHistory
+        }
+        if (!parked) accumulateLifetime(dt, sample.speedKmh, safety, now)
+        if (parked && !prev.isParked) saveLifetime(now)
+
         val tripPoints = (awakeMs / POINT_EVERY_MS).toInt()
         val totalPoints = pointsAtTripStart + tripPoints
         if (totalPoints != prev.totalPoints) prefs.edit().putInt(KEY_TOTAL_POINTS, totalPoints).apply()
@@ -184,6 +206,8 @@ class KkaeuLiveSource(
                 tripDriveMinutes = (tripDriveMs / 60_000).toInt(),
                 accrualState = accrual,
                 isParked = parked,
+                safetyHistory = history,
+                lifetime = lifetimeStats(),
             )
         }
 
@@ -203,6 +227,33 @@ class KkaeuLiveSource(
             )
         }
     }
+
+    /** 주행 중인 [dt] 동안의 시간·거리·안전 점수를 누적 기록에 더한다 (10초마다 저장) */
+    private fun accumulateLifetime(dt: Long, speedKmh: Float, safety: Int, now: Long) {
+        if (dt <= 0L) return
+        lifeDriveMs += dt
+        lifeDistanceKm += speedKmh.coerceAtLeast(0f) * dt / 3_600_000f
+        val sec = dt / 1000f
+        lifeScoreSum += safety * sec
+        lifeScoreSec += sec
+        if (now - lifeSavedAtMs >= LIFETIME_SAVE_EVERY_MS) saveLifetime(now)
+    }
+
+    private fun saveLifetime(now: Long) {
+        lifeSavedAtMs = now
+        prefs.edit()
+            .putLong(KEY_LIFE_DRIVE_MS, lifeDriveMs)
+            .putFloat(KEY_LIFE_DISTANCE_KM, lifeDistanceKm)
+            .putFloat(KEY_LIFE_SCORE_SUM, lifeScoreSum)
+            .putFloat(KEY_LIFE_SCORE_SEC, lifeScoreSec)
+            .apply()
+    }
+
+    private fun lifetimeStats() = LifetimeStats(
+        totalDriveMinutes = (lifeDriveMs / 60_000).toInt(),
+        totalDistanceKm = lifeDistanceKm,
+        averageSafetyScore = if (lifeScoreSec >= 1f) (lifeScoreSum / lifeScoreSec).roundToInt() else null,
+    )
 
     private fun nextAccrualState(cur: AccrualState, prevLevel: DrowsyLevel, level: DrowsyLevel, now: Long) = when {
         level >= DrowsyLevel.WARNING -> AccrualState.HIDDEN
@@ -257,7 +308,8 @@ class KkaeuLiveSource(
         eventCount = 0
         restCount = 0
         responseTimesMs.clear()
-        _state.update { it.copy(tripReport = null, lastScoreChange = null) }
+        lastHistoryMs = null
+        _state.update { it.copy(tripReport = null, lastScoreChange = null, safetyHistory = emptyList()) }
     }
 
     // ───────────────────────── 엔진이 부르는 모듈 (UI 상태도 함께 갱신) ─────────────────────────
@@ -271,6 +323,7 @@ class KkaeuLiveSource(
         val isAsking get() = pending != null
 
         override fun ask(question: String, onResult: (VoiceAnswer) -> Unit) {
+            manualAsking = false   // 엔진 질문이 "음성으로 답하기"를 덮어쓴다 (그쪽 콜백은 오지 않음)
             pending = onResult
             resetJob?.cancel()
             listeningAt = 0L
@@ -291,6 +344,7 @@ class KkaeuLiveSource(
 
         override fun stopAll() {
             pending = null
+            manualAsking = false
             voiceModule.stopAll()
             showThenIdle(null)
         }
@@ -342,7 +396,7 @@ class KkaeuLiveSource(
         }
 
         /** 결과를 잠깐 보여 준 뒤 IDLE로 되돌린다 (그 사이 새 질문이 시작되면 건드리지 않음) */
-        private fun showThenIdle(shown: VoiceState?, text: String? = null) {
+        fun showThenIdle(shown: VoiceState?, text: String? = null) {
             resetJob?.cancel()
             if (shown == null) {
                 _state.update { if (it.voiceState == VoiceState.ALARM) it else it.copy(voiceState = VoiceState.IDLE, recognizedText = null) }
@@ -445,6 +499,54 @@ class KkaeuLiveSource(
         _state.update { it.copy(tripReport = null) }
     }
 
+    /** "음성으로 답하기"로 시작한 질문이 진행 중인지 (엔진 질문과는 별개) */
+    private var manualAsking = false
+
+    override fun onVoiceAnswer() {
+        if (driverVoice.isAsking || manualAsking) return
+        if (_state.value.level < DrowsyLevel.WARNING) return
+        manualAsking = true
+        val prompt = appContext.getString(R.string.warning_voice_prompt)
+        var listeningAt = 0L
+        Log.d(TAG, "음성으로 답하기 → 경고 멈추고 질문")
+        // askAndListen이 진행 중인 경고를 먼저 멈춘다. 경고 종료 콜백이 ASKING을 덮지 않도록 상태를 먼저 바꾼다
+        _state.update { it.copy(voiceState = VoiceState.ASKING, voiceQuestion = prompt, recognizedText = null) }
+        voiceModule.askAndListen(
+            prompt,
+            onListening = {
+                listeningAt = now()
+                _state.update { it.copy(voiceState = VoiceState.LISTENING) }
+            },
+        ) { r ->
+            if (!manualAsking) return@askAndListen
+            manualAsking = false
+            val response = DriverResponseClassifier.classify(VoiceAnswer(r.text, r.isTimeout, r.speechStartTimeMs))
+            Log.d(TAG, "음성으로 답하기 결과: $response")
+            if (r.text != null && listeningAt > 0) r.speechStartTimeMs?.let { responseTimesMs += it }
+            driverVoice.showThenIdle(
+                when (response) {
+                    DriverResponse.NO_ANSWER -> VoiceState.NO_RESPONSE
+                    DriverResponse.ERROR -> VoiceState.FAILED
+                    else -> if (r.text != null) VoiceState.RESULT else VoiceState.NO_RESPONSE
+                },
+                r.text,
+            )
+            // 괜찮다고 하면 경고음을 끈 채로 둔다. 아니면(졸림·무응답·불명확) 아직 경고 단계일 때 다시 울린다
+            // TODO(integration): 판단 엔진에 이 대답을 넘기는 공개 함수가 생기면 연결 (지금은 경고음만 다룬다)
+            if (response != DriverResponse.OK && _state.value.level >= DrowsyLevel.WARNING) alarm.start()
+        }
+    }
+
+    override fun onFindRestStop() {
+        val stop = _state.value.restStop
+        if (stop != null && !stop.isWaypointAdded) {
+            onAddRestStopWaypoint()
+        } else {
+            Log.d(TAG, "근처 쉼터 찾기 → 내비에 쉼터 안내 요청")
+            navi.guideToRestArea()
+        }
+    }
+
     override fun onToggleWarningSound() {
         val on = !_state.value.warningSoundOn
         voiceModule.setSilenced(!on)   // 끄면 진행 중인 경고도 즉시 멈춘다
@@ -518,6 +620,10 @@ class KkaeuLiveSource(
         const val PREFS = "kkaeurang"
         const val KEY_TOTAL_POINTS = "total_points"
         const val KEY_WARNING_SOUND = "warning_sound_on"
+        const val KEY_LIFE_DRIVE_MS = "life_drive_ms"
+        const val KEY_LIFE_DISTANCE_KM = "life_distance_km"
+        const val KEY_LIFE_SCORE_SUM = "life_score_sum"
+        const val KEY_LIFE_SCORE_SEC = "life_score_sec"
 
         const val POINT_EVERY_MS = 60_000L           // NORMAL로 1분 주행할 때마다 1P
         const val MAX_TICK_GAP_MS = 5_000L           // 앱이 멈췄다 돌아온 시간은 주행 시간에 넣지 않음
@@ -525,6 +631,9 @@ class KkaeuLiveSource(
         const val RESULT_SHOW_MS = 2_000L
         const val VEHICLE_EVENT_SHOW_MS = 5_000L
         const val FORCED_MS = 3 * 60_000L            // DrowsinessChecker.FORCED_MS와 같은 값
+        const val HISTORY_EVERY_MS = 30_000L         // 안전 점수 그래프에 30초마다 점 하나
+        const val MAX_HISTORY = 240                  // 최근 2시간
+        const val LIFETIME_SAVE_EVERY_MS = 10_000L
 
         // DrowsinessChecker가 만드는 문장 형식 (엔진 문구가 바뀌면 여기도 맞춘다)
         const val REASON_LONG_DRIVE = "연속 주행"

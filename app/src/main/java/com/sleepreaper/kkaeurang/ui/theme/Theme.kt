@@ -5,9 +5,9 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 
 private val KkaeuDarkColorScheme = darkColorScheme(
-    primary = KkaeuColors.LevelNormal,
-    onPrimary = KkaeuColors.OnLight,
-    secondary = KkaeuColors.LevelCaution,
+    primary = KkaeuColors.Accent,
+    onPrimary = KkaeuColors.TextPrimary,
+    secondary = KkaeuColors.Yellow,
     onSecondary = KkaeuColors.OnLight,
     background = KkaeuColors.Background,
     onBackground = KkaeuColors.TextPrimary,
@@ -18,7 +18,7 @@ private val KkaeuDarkColorScheme = darkColorScheme(
     outline = KkaeuColors.Outline,
 )
 
-/** 차량 환경이므로 시스템 설정과 상관없이 항상 다크·고대비 테마를 쓴다 */
+/** 차량 환경이므로 시스템 설정과 상관없이 항상 밤하늘(다크) 테마를 쓴다 */
 @Composable
 fun KkaeUrangTheme(content: @Composable () -> Unit) {
     MaterialTheme(

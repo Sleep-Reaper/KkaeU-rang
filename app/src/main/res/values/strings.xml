@@ -2,8 +2,8 @@
     <string name="app_name">KkaeU-rang</string>
     <string name="logo_text">깨우랑</string>
 
-    <!-- 졸음 단계 -->
-    <string name="level_normal">정상</string>
+    <!-- 졸음 단계 (화면 표시 이름) -->
+    <string name="level_normal">안전</string>
     <string name="level_caution">주의</string>
     <string name="level_warning">경고</string>
     <!-- CRITICAL 표시 이름은 아직 미정. 일단 "위험" -->
@@ -12,24 +12,91 @@
     <!-- 공통 -->
     <string name="btn_okay">괜찮아요</string>
     <string name="btn_close">닫기</string>
-    <string name="btn_cancel">취소</string>
-    <string name="points_total">⭐ %1$,dP</string>
     <string name="duration_h_m">%1$d시간 %2$d분</string>
     <string name="duration_h">%1$d시간</string>
     <string name="duration_m">%1$d분</string>
     <string name="clock_format">%1$d:%2$02d</string>
 
-    <!-- GaugePanel (계기판) -->
-    <string name="stage_title">%1$d단계 %2$s</string>
-    <string name="dial_caption">졸음 지수</string>
-    <string name="score_log_title">마지막 점수 로그</string>
-    <string name="score_log_entry">[%1$s %2$+d점]</string>
-    <string name="score_log_empty">아직 점수 변화가 없어요</string>
-    <string name="total_points_label">지금까지 쌓인 깨우랑 포인트</string>
+    <!-- 헤더 (모든 화면 공통) -->
+    <string name="header_tagline">졸음보다 한발 먼저,</string>
+    <string name="header_parked">정차 중</string>
+    <string name="header_logo_description">깨우랑</string>
 
-    <!-- 메인 화면: 계기판 가운데 + 네 모서리 -->
-    <string name="main_points_label">지금까지 쌓인 포인트 :</string>
-    <string name="main_points_value">%1$,dP</string>
+    <!-- 하단 탭 -->
+    <string name="tab_home">홈</string>
+    <string name="tab_drive_log">주행 로그</string>
+    <string name="tab_benefits">혜택</string>
+    <string name="tab_my">마이</string>
+    <string name="tab_settings">설정</string>
+    <string name="tab_coming_soon">준비 중인 화면이에요</string>
+    <string name="tab_coming_soon_sub">지금은 홈 화면에서 주요 기능을 이용할 수 있어요</string>
+    <string name="settings_warning_sound_sub">졸음 경고 때 안내 문구와 신호음을 함께 울려요</string>
+
+    <!-- 홈: 안전 점수 계기판 -->
+    <string name="gauge_out_of">/100</string>
+    <string name="gauge_level_badge">%1$s (Lv.%2$d)</string>
+    <string name="gauge_description">안전 점수 %1$d점, %2$s</string>
+
+    <!-- 홈: 카드 -->
+    <string name="condition_title">현재 컨디션</string>
+    <string name="condition_awake">기상 후 %1$s 경과</string>
+    <string name="condition_sleep">수면 %1$s</string>
+    <string name="condition_empty_title">수면 기록 없음</string>
+    <string name="condition_empty_sub">수면 기록을 연결하면 보여 드려요</string>
+    <string name="rest_find_title">근처 쉼터 찾기</string>
+    <string name="rest_find_sub">가까운 휴게소 · 쉼터로 안내</string>
+    <string name="rest_find_nearest">%1$s · %2$.1fkm</string>
+    <string name="rest_find_added">%1$s 경유 중</string>
+    <string name="score_log_card_title">이번 주행 점수 로그</string>
+    <string name="score_log_more">자세히 보기</string>
+    <string name="score_log_point">%1$d점</string>
+    <string name="score_log_start">출발</string>
+    <string name="score_log_mid">주행 중</string>
+    <string name="score_log_now">지금</string>
+    <string name="score_log_collecting">주행 점수를 모으는 중이에요</string>
+    <string name="points_card_title">누적 포인트</string>
+    <string name="points_card_value">%1$,d</string>
+    <string name="points_unit">P</string>
+    <string name="benefits_preview">혜택 미리보기</string>
+    <string name="benefits_caption">주유소 할인 · 보험료 감면 등</string>
+    <string name="stats_title">나의 주행 로그</string>
+    <string name="stats_hours">%1$,d시간</string>
+    <string name="stats_km_value">%1$,d</string>
+    <string name="stats_km_unit">km</string>
+    <string name="stats_avg_prefix">평균</string>
+    <string name="stats_avg_suffix">점</string>
+    <string name="stats_no_value">–</string>
+    <string name="stats_total_time">총 주행 시간</string>
+    <string name="stats_total_distance">총 주행 거리</string>
+    <string name="stats_average">전체 평균 점수</string>
+
+    <!-- 경보 화면 (주의·경고·위험) -->
+    <string name="alert_badge">%1$s 단계</string>
+    <string name="caution_asking">질문하는 중…</string>
+    <string name="caution_listening">말씀해 주세요…</string>
+    <string name="caution_result">대답을 확인했어요</string>
+    <string name="caution_no_response">응답이 없어요 · 다시 여쭤볼게요</string>
+    <string name="caution_failed">음성 인식을 쓸 수 없어요 · 버튼을 눌러 주세요</string>
+    <string name="caution_idle_title">주행이 평소와 조금 달라요</string>
+    <string name="caution_idle_sub">졸리면 언제든 쉬어 가세요</string>
+    <string name="warning_title">지금 바로 반응해 주세요!</string>
+    <string name="warning_voice">음성으로 답하기</string>
+    <string name="warning_touch">터치로 응답하기</string>
+    <string name="warning_voice_prompt">괜찮으시면 괜찮다고 말씀해 주세요.</string>
+    <!-- [ ] 안의 글자는 노란색으로 강조 -->
+    <string name="danger_title_window">창문을 열고</string>
+    <string name="danger_title_no_window">지금 바로</string>
+    <string name="danger_title_rest">가까운 [쉼터]로 [이동]합니다</string>
+    <string name="danger_window_open">창문 열림</string>
+    <string name="danger_window_closed">창문 닫힘</string>
+    <string name="danger_front_seats">(앞 좌석 2개)</string>
+    <string name="danger_rear_seats">(뒷좌석 2개)</string>
+    <string name="danger_route_done">가까운 쉼터로\n경로 변경 완료</string>
+    <string name="danger_route_requested">가까운 쉼터로\n안내를 요청했어요</string>
+    <string name="danger_rest_pill">%1$s (약 %2$.1fkm)</string>
+    <string name="danger_rest_unknown">내비게이션에서 확인해 주세요</string>
+
+    <!-- 헤더: 주행 시간 · 음성 상태 · 경고음 -->
     <string name="main_drive_time">%1$s 주행 중</string>
     <string name="main_risk_time">위험 시간대</string>
     <string name="main_voice_idle">대기</string>
@@ -40,67 +107,11 @@
     <string name="main_voice_alarm">알람 중</string>
     <string name="main_voice_quote">“%1$s”</string>
     <string name="main_warning_sound">경고음</string>
-    <string name="main_window_closed">창문 닫힘</string>
-    <string name="main_window_open">창문 열림</string>
-    <string name="main_outside_air_off">외기 유입 OFF</string>
-    <string name="main_outside_air_on">외기 유입 ON</string>
-    <string name="main_weather_clear">맑음</string>
-    <string name="main_weather_partly_cloudy">구름 조금</string>
-    <string name="main_weather_cloudy">흐림</string>
-    <string name="main_weather_rain">비</string>
-    <string name="main_weather_snow">눈</string>
-    <string name="main_rest_distance">%1$.1fkm</string>
-    <string name="main_waypoint_added">경유지 추가됨</string>
-    <string name="main_dial_description">졸음 점수 %1$d점, %2$s</string>
 
-    <!-- ReasonBlock -->
-    <string name="reason_title">판단 근거</string>
-    <string name="reason_none">특이사항 없음</string>
-    <string name="reason_bullet">· %1$s</string>
-    <string name="continuous_drive">🕐 연속 %1$s</string>
-    <string name="continuous_drive_long">🕐 연속 %1$s · 오래 달렸어요</string>
-    <string name="risk_time_badge">🌙 위험 시간대</string>
-
-    <!-- RewardStrip -->
-    <string name="reward_title">이번 주행</string>
-    <string name="reward_awake">🕐 깨어 있던 시간 %1$s</string>
-    <string name="reward_drive_total">전체 주행 %1$s</string>
-    <string name="reward_trip_points">⭐ +%1$,dP</string>
-    <string name="accrual_accruing">● 적립 중</string>
-    <string name="accrual_paused">⏸ 적립 잠시 멈춤</string>
-    <string name="accrual_resumed">● 적립 재개</string>
-
-    <!-- VoicePanel -->
-    <string name="voice_icon_speaker">🔊</string>
-    <string name="voice_icon_mic">🎤</string>
+    <!-- 경보 화면 보조 문구 · 차량 제어 -->
     <string name="voice_default_question">주행이 평소와 조금 달라요. 괜찮으세요?</string>
-    <string name="voice_listening">지금 말씀하세요</string>
-    <string name="voice_result">“%1$s”</string>
-    <string name="voice_no_response">다시 여쭤볼게요</string>
-    <string name="voice_failed">음성 인식을 사용할 수 없어요</string>
-    <string name="voice_points_hint">대답하면 바로 적립이 재개돼요</string>
-
-    <!-- WarningPanel -->
-    <string name="warning_title">졸음이 감지됐어요</string>
-    <string name="warning_alarm_running">🔔 알람 재생 중</string>
     <string name="warning_forced">응답이 없어 경고를 유지 중이에요 · %1$s</string>
-
-    <!-- VehicleControlBanner -->
-    <string name="vehicle_icon_window">🪟</string>
-    <string name="vehicle_icon_blocked">🌬️</string>
     <string name="live_window_opened">졸음 감지로 창문을 조금 열었어요</string>
-
-    <!-- RestStopCard -->
-    <string name="rest_suggest">쉬어가고 싶다면 가까운 쉼터가 있어요</string>
-    <string name="rest_type_drowsy_shelter">졸음쉼터</string>
-    <string name="rest_type_service_area">휴게소</string>
-    <string name="rest_distance">📍 %1$.1fkm</string>
-    <string name="rest_toilet_yes">🚻 화장실 있음</string>
-    <string name="rest_toilet_no">🚻 화장실 없음</string>
-    <string name="rest_parking">🅿️ 주차 %1$d면</string>
-    <string name="rest_parking_unknown">🅿️ 주차 정보 없음</string>
-    <string name="rest_add_waypoint">경유지 추가</string>
-    <string name="rest_waypoint_added">✓ %1$s 경유 중</string>
 
     <!-- TripReportScreen -->
     <string name="report_headline">오늘 %1$s 깨어 있었어요 · +%2$,dP 🎉</string>
