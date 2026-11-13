@@ -8,7 +8,7 @@ import com.sleepreaper.kkaeurang.ui.model.TripLogKind
 /**
  * 판단 엔진 사건 로그 한 줄 → 주행 리포트 "상세 로그" 한 줄.
  * 엔진 문장 형식(DrowsinessChecker.note)에 맞춰 읽는다. 엔진 문구가 바뀌면 여기도 맞춘다.
- * 화면에는 졸음 점수 대신 안전 점수(= 100 − 졸음 점수)로 보여 준다.
+ * 엔진 점수는 이미 안전 점수(100에서 감점)라서 변환 없이 그대로 쓴다. 사건 로그의 "-25점"이 곧 안전 점수 변화량이다.
  */
 object TripLogMapper {
 
@@ -17,7 +17,7 @@ object TripLogMapper {
         LEVEL_CHANGE.matchEntire(msg)?.let { m ->
             val from = levelOf(m.groupValues[1])
             val to = levelOf(m.groupValues[2])
-            val safety = 100 - m.groupValues[3].toInt()
+            val safety = m.groupValues[3].toInt()   // 엔진 점수 = 안전 점수
             val kind = if (from != null && to != null && to < from) TripLogKind.LEVEL_DOWN else TripLogKind.LEVEL_UP
             return TripLogEntry(
                 entry.time, kind,
@@ -26,8 +26,8 @@ object TripLogMapper {
             )
         }
         SCORE_EVENT.matchEntire(msg)?.let { m ->
-            // 엔진은 졸음 점수 가산(+25)으로 적는다 → 안전 점수로는 감소(-25)
-            return TripLogEntry(entry.time, TripLogKind.EVENT, m.groupValues[1], safetyDelta = -m.groupValues[2].toInt())
+            // 엔진이 안전 점수 변화량으로 적는다 (감점 -25, 디버그 회복 +10 등)
+            return TripLogEntry(entry.time, TripLogKind.EVENT, m.groupValues[1], safetyDelta = m.groupValues[2].toInt())
         }
         val kind = when {
             msg.startsWith("운전자에게 질문") -> TripLogKind.QUESTION

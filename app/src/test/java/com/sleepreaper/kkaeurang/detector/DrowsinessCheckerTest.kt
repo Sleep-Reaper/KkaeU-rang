@@ -109,35 +109,35 @@ class DrowsinessCheckerTest {
     @Test fun normalDriving_staysNormal() {
         tickVarying(30)
         assertEquals(Level.NORMAL, result.level)
-        assertEquals(0, result.score)
+        assertEquals(100, result.score)             // 감점이 없으면 안전 점수 100
         assertEquals(0, alarm.starts)
         assertEquals(0, voice.askCount)
     }
 
-    @Test fun conditionRisk_isPersistentBaseScore() {
+    @Test fun conditionRisk_isPersistentBasePenalty() {
         checker.setConditionRisk(20, "수면 4시간 미만")
         tickVarying(5)
-        assertEquals(20, result.score)
+        assertEquals(80, result.score)              // 100에서 20 감점한 상태로 시작
         assertEquals(Level.NORMAL, result.level)
         assertTrue(result.reasons.contains("출발 전 컨디션 (수면 4시간 미만)"))
-        tickVarying(600)                 // 이벤트 점수와 달리 시간이 지나도 줄지 않는다
-        assertEquals(20, result.score)
+        tickVarying(600)                 // 사건 감점과 달리 시간이 지나도 회복되지 않는다
+        assertEquals(80, result.score)
         checker.setConditionRisk(0, "대답 없음")
         tickVarying(1)
-        assertEquals(0, result.score)
+        assertEquals(100, result.score)
     }
 
     @Test fun conditionRisk_isCappedBelowCaution() {
         checker.setConditionRisk(80, "테스트")
         tickVarying(1)
-        assertEquals(30, result.score)
+        assertEquals(70, result.score)              // 컨디션 감점은 최대 30점 (안전 점수 70 이상)
         assertEquals(Level.NORMAL, result.level)
     }
 
     @Test fun steeringFreeze_addsPointsButStaysNormal() {
         tickN(12)
         assertEquals(Level.NORMAL, result.level)
-        assertTrue("score=${result.score}", result.score in 10..15)
+        assertTrue("score=${result.score}", result.score in 85..90)
         assertTrue(result.reasons.contains("핸들 조작 없음 10초 이상"))
     }
 
@@ -242,8 +242,8 @@ class DrowsinessCheckerTest {
         assertTrue("사건이 없으면 로그도 비어 있어야 한다", checker.logs.value.isEmpty())
 
         cycle1()
-        assertTrue(logMessages.any { it == "핸들 조작 없음 10초 이상 (+15점)" })
-        assertTrue(logMessages.any { it == "핸들 고정 후 급조작 (+25점)" })
+        assertTrue(logMessages.any { it == "핸들 조작 없음 10초 이상 (-15점)" })
+        assertTrue(logMessages.any { it == "핸들 고정 후 급조작 (-25점)" })
         assertTrue(logMessages.any { it.startsWith("단계 변경: 정상 → 주의") })
         assertTrue(logMessages.any { it == "운전자에게 질문" })
     }
@@ -280,7 +280,7 @@ class DrowsinessCheckerTest {
         tickN(4)                               // P단 3초 유지 확인 후 해제
 
         assertEquals(Level.NORMAL, result.level)
-        assertEquals(0, result.score)
+        assertEquals(100, result.score)             // 정차 해제: 감점이 초기화되어 100으로 돌아온다
         assertTrue(alarm.stops >= 1)
         assertTrue(voice.said.contains("잘 쉬고 출발하세요."))
         assertTrue(logMessages.contains("정차(P단) → 경고 해제"))
@@ -340,46 +340,46 @@ class DrowsinessCheckerTest {
         tickN(5)
 
         assertTrue(voice.said.isEmpty())
-        assertTrue("주의 단계에서는 점수를 초기화하지 않는다 (before=$before, now=${result.score})", result.score >= before - 1)
+        assertTrue("주의 단계에서는 점수를 초기화하지 않는다 (before=$before, now=${result.score})", result.score <= before + 1)
     }
 
     // ── 단계 경계 여유(히스테리시스) ──
 
     @Test fun warning_holdsJustBelowThreshold_thenReleasesWhenLowEnough() {
-        checker.debugAdjustEventScore(72f)
+        checker.debugAdjustPenalty(72f)
         tickVarying(1)
         assertEquals(Level.WARNING, result.level)
         assertEquals(1, alarm.starts)
 
-        checker.debugAdjustEventScore(-3f)          // 69점: 70 미만이지만 여유(2점) 안
+        checker.debugAdjustPenalty(-3f)          // 안전 31점: 경고 기준(30) 초과지만 여유(2점) 안
         tickVarying(1)
         assertEquals(Level.WARNING, result.level)
         assertEquals(0, alarm.stops)
 
-        checker.debugAdjustEventScore(-3f)          // 66점: 여유를 벗어남
+        checker.debugAdjustPenalty(-3f)          // 안전 34점: 여유를 벗어남
         tickVarying(1)
         assertEquals(Level.CAUTION, result.level)
         assertEquals(1, alarm.stops)
     }
 
     @Test fun levelRisesWithoutHysteresis() {
-        checker.debugAdjustEventScore(71f)          // 70 이상이면 바로 경고
+        checker.debugAdjustPenalty(71f)          // 안전 29점: 30 이하면 바로 경고 (여유 없음)
         tickVarying(1)
         assertEquals(Level.WARNING, result.level)
         assertEquals(1, alarm.starts)
     }
 
     @Test fun danger_holdsJustBelowThreshold_withoutRepeatingWindowAndNavi() {
-        checker.debugAdjustEventScore(85f)
+        checker.debugAdjustPenalty(85f)
         tickVarying(1)
         assertEquals(Level.DANGER, result.level)
         assertEquals(1, win.opens)
 
-        checker.debugAdjustEventScore(-6f)          // 79점: 80 미만이지만 여유 안
+        checker.debugAdjustPenalty(-6f)          // 안전 21점: 위험 기준(20) 초과지만 여유 안
         tickVarying(1)
         assertEquals(Level.DANGER, result.level)
 
-        checker.debugAdjustEventScore(-3f)          // 76점: 여유를 벗어남 → 경고
+        checker.debugAdjustPenalty(-3f)          // 안전 24점: 여유를 벗어남 → 경고
         tickVarying(1)
         assertEquals(Level.WARNING, result.level)
         assertEquals(0, alarm.stops)                // 경고 이상이라 알람은 계속

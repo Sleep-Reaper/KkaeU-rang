@@ -8,7 +8,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlin.math.roundToInt
 
 /**
- * 졸음 판단 엔진. 1초마다 샘플을 찍고 → 규칙 ①~⑥ → 점수 → 4단계를 정해 [result]로 내보낸다.
+ * 졸음 판단 엔진. 1초마다 샘플을 찍고 → 규칙 ①~⑥ → 안전 점수 → 4단계를 정해 [result]로 내보낸다.
+ * 점수는 **100에서 시작해 위험한 사건이 있으면 감점**한다 (화면의 안전 점수와 같은 값, 기준은 [ScoreThresholds]).
  * 단계가 오르면 알람·창문·내비·질문을 직접 호출한다.
  *
  * 모든 동작은 **메인 스레드**에서 일어난다. (음성 콜백도 메인이라 별도 동기화가 필요 없다.)
@@ -20,7 +21,7 @@ import kotlin.math.roundToInt
  * val sample by checker.sample.collectAsState()   // 속도·핸들·깜빡이·브레이크·기어 실시간 값
  * val logs by checker.logs.collectAsState()       // 최근 사건 로그 (최대 100개, 오래된 것이 앞)
  * ```
- * - [logs]는 단계 변경·점수 가산·질문·응답·알람/창문/내비 호출만 담는다. 매초 점수는 [result]를 쓴다.
+ * - [logs]는 단계 변경·점수 감점·질문·응답·알람/창문/내비 호출만 담는다. 매초 점수는 [result]를 쓴다.
  * - 운전자 대답 원문은 로그에 넣지 않고 분류 결과만 남긴다.
  * - [start]가 성공해야 값이 갱신된다. (권한 요청 후 시작)
  */
@@ -36,7 +37,7 @@ class DrowsinessChecker(
 
     private val samples = ArrayDeque<Sample>()
 
-    private var eventScore = 0f                              // ①~④ + 운전자 응답 가산, 시간이 지나면 감소
+    private var eventPenalty = 0f                            // ①~④ + 운전자 응답 감점, 시간이 지나면 회복
     private var driveStartMs: Long? = null                   // ⑤ 연속 주행 시작 시각
     private var parkSinceMs: Long? = null                    // P단이 이어지기 시작한 시각 (P단이 아니면 null)
     private val recentEvents = ArrayDeque<Pair<Long, String>>()  // 이유 문장용
@@ -102,37 +103,38 @@ class DrowsinessChecker(
         val parkedFor = parkSinceMs?.let { now - it } ?: 0L
         if (s.isPark && parkedFor >= PARK_CONFIRM_MS && lastLevel >= Level.WARNING) releaseOnPark(now)
 
-        // 3) 이벤트 규칙 ①~④ — 시작된 순간에만 점수 추가
+        // 3) 이벤트 규칙 ①~④ — 시작된 순간에만 감점
         if (DrowsinessRules.isSuddenCorrection(list)) addEvent(now, 25f, "핸들 고정 후 급조작")
         else if (justStarted(list, DrowsinessRules::isSteeringFrozen)) addEvent(now, 15f, "핸들 조작 없음 10초 이상")
         if (justStarted(list, DrowsinessRules::isDriftWithoutSignal)) addEvent(now, 15f, "방향지시등 없이 한쪽으로 쏠림")
         if (justStarted(list, DrowsinessRules::isSpeedUnstable)) addEvent(now, 10f, "속도 유지 불안정")
 
-        // 4) 이벤트 점수 감소: 1초에 0.05점 → 10분이면 30점
-        eventScore = (eventScore - DECAY_PER_TICK).coerceIn(0f, MAX_EVENT_SCORE)
+        // 4) 사건 감점 회복: 1초에 0.05점 → 10분이면 30점
+        eventPenalty = (eventPenalty - RECOVER_PER_TICK).coerceIn(0f, MAX_EVENT_PENALTY)
         while (recentEvents.isNotEmpty() && now - recentEvents.first().first > EVENT_MEMORY_MS)
             recentEvents.removeFirst()
 
-        // 5) 기본 위험도 ⑤⑥
+        // 5) 기본 감점 ⑤⑥ (조건이 맞는 동안 계속)
         val reasons = mutableListOf<String>()
-        var base = 0f
+        var basePenalty = 0f
         if (DrowsinessRules.isLongDrive(driveStartMs, now)) {
-            base += 10f
+            basePenalty += 10f
             val min = (now - driveStartMs!!) / 60_000
             reasons += "연속 주행 ${min / 60}시간 ${min % 60}분"
         }
         if (DrowsinessRules.isRiskyHour(now)) {
-            base += 15f
+            basePenalty += 15f
             reasons += "졸음 위험 시간대"
         }
         if (conditionRisk > 0f) {
-            base += conditionRisk
+            basePenalty += conditionRisk
             conditionReason?.let { reasons += it }
         }
 
-        // 6) 합산 → 4단계. 무응답으로 올려 둔 단계가 더 높으면 그걸 쓴다.
-        val score = (base + eventScore).roundToInt().coerceIn(0, 100)
-        val scoreLevel = levelFor(score, lastScoreLevel)
+        // 6) 100에서 감점 → 안전 점수 → 4단계. 무응답으로 올려 둔 단계가 더 높으면 그걸 쓴다.
+        val penalty = (basePenalty + eventPenalty).roundToInt().coerceIn(0, ScoreThresholds.FULL)
+        val score = ScoreThresholds.FULL - penalty
+        val scoreLevel = ScoreThresholds.levelFor(score, lastScoreLevel)
         lastScoreLevel = scoreLevel
         val level = if (now < forcedUntil && forcedLevel > scoreLevel) forcedLevel else scoreLevel
 
@@ -191,27 +193,6 @@ class DrowsinessChecker(
     }
 
     /**
-     * 점수 → 단계. 올라갈 때는 기준 점수(40·70·80)에서 바로 올리지만, 내려갈 때는 기준보다 [LEVEL_HYSTERESIS]점 더 내려가야 내린다.
-     * (70점 근처에서 점수가 한 두 점 내려갔다가 알람이 켜졌다 꺼졌다 하는 것을 막는다)
-     */
-    private fun levelFor(score: Int, previous: Level): Level {
-        val byScore = when {
-            score >= 80 -> Level.DANGER
-            score >= 70 -> Level.WARNING
-            score >= 40 -> Level.CAUTION
-            else -> Level.NORMAL
-        }
-        if (byScore >= previous) return byScore
-        val holdFrom = when (previous) {
-            Level.DANGER -> 80
-            Level.WARNING -> 70
-            Level.CAUTION -> 40
-            Level.NORMAL -> 0
-        } - LEVEL_HYSTERESIS
-        return if (score >= holdFrom) previous else byScore
-    }
-
-    /**
      * 경고 이상 상태에서 P단이 되면 한 번 호출된다: 알람 중지 → 안내 → 이벤트 점수·강제 단계 초기화.
      * (초기화 뒤 이번 틱의 점수는 기본 위험도만 남아 NORMAL이 되므로 다음 틱에 다시 호출되지 않는다)
      */
@@ -223,7 +204,7 @@ class DrowsinessChecker(
         }
         alarm.stop()
         voice.say(PARK_GUIDE)
-        eventScore = 0f
+        eventPenalty = 0f
         forcedLevel = Level.NORMAL
         forcedUntil = 0L
         recentEvents.clear()
@@ -268,15 +249,16 @@ class DrowsinessChecker(
     }
 
     /**
-     * 디버그 전용: 이벤트 점수를 직접 더하거나 뺀다. (실차가 아닌 환경에서 단계 전환을 확인하는 용도)
+     * 디버그 전용: 사건 감점을 직접 늘리거나 줄인다. (실차가 아닌 환경에서 단계 전환을 확인하는 용도)
+     * [delta]가 **양수면 감점이 늘어난다** (안전 점수가 내려감). 로그는 안전 점수 변화량으로 남긴다 (예: -30점).
      * 단계 변경과 그에 따른 질문·알람은 다음 틱(1초 안)에 평소처럼 일어난다.
      */
-    fun debugAdjustEventScore(delta: Float) {
+    fun debugAdjustPenalty(delta: Float) {
         val now = clock()
-        val before = eventScore
-        eventScore = (eventScore + delta).coerceIn(0f, MAX_EVENT_SCORE)
-        val applied = (eventScore - before).roundToInt()
-        note(now, "디버그 점수 조절 (${if (applied >= 0) "+" else ""}${applied}점)")
+        val before = eventPenalty
+        eventPenalty = (eventPenalty + delta).coerceIn(0f, MAX_EVENT_PENALTY)
+        val applied = (eventPenalty - before).roundToInt()
+        note(now, "디버그 점수 조절 (${signed(-applied)}점)")
     }
 
     /**
@@ -287,14 +269,17 @@ class DrowsinessChecker(
     fun setConditionRisk(points: Int, reason: String) {
         conditionRisk = points.coerceIn(0, MAX_CONDITION_RISK).toFloat()
         conditionReason = "출발 전 컨디션 ($reason)".takeIf { conditionRisk > 0f }
-        note(clock(), "출발 전 컨디션: $reason, 기본 위험도 ${conditionRisk.roundToInt()}점")
+        note(clock(), "출발 전 컨디션: $reason, 시작 감점 ${conditionRisk.roundToInt()}점")
     }
 
-    private fun addEvent(now: Long, point: Float, msg: String) {
-        eventScore = (eventScore + point).coerceAtMost(MAX_EVENT_SCORE)
+    private fun addEvent(now: Long, penalty: Float, msg: String) {
+        eventPenalty = (eventPenalty + penalty).coerceAtMost(MAX_EVENT_PENALTY)
         recentEvents.addLast(now to msg)
-        note(now, "$msg (+${point.toInt()}점)")
+        note(now, "$msg (-${penalty.toInt()}점)")
     }
+
+    /** 부호를 항상 붙여 표기: 30 → "+30", -30 → "-30", 0 → "+0" */
+    private fun signed(n: Int) = if (n >= 0) "+$n" else "$n"
 
     /** Logcat과 UI 로그([logs])에 함께 남긴다. 매초 찍는 점수 로그에는 쓰지 않는다. */
     private fun note(now: Long, message: String) {
@@ -324,7 +309,6 @@ class DrowsinessChecker(
 
     companion object {
         private const val TAG = "Kkaeu.Checker"
-        private const val LEVEL_HYSTERESIS = 2                    // 단계를 내릴 때 기준 점수보다 더 내려가야 하는 점수 (사건 점수 감소 0.05/초 → 약 40초)
     private const val PARK_CONFIRM_MS = 3_000L                // P단이 이 시간 이어져야 경고를 해제
     private const val NAVI_GUIDE = "가까운 졸음쉼터로 안내할게요."
     private const val NAVI_FAIL_GUIDE = "졸음쉼터 안내에 실패했어요."
@@ -334,8 +318,8 @@ class DrowsinessChecker(
         private const val TICK_MS = 1000L
         private const val MAX_SAMPLES = 600
         private const val MAX_LOGS = 100
-        private const val DECAY_PER_TICK = 0.05f
-        private const val MAX_EVENT_SCORE = 100f
+        private const val RECOVER_PER_TICK = 0.05f           // 사건 감점이 1초에 회복되는 점수 (10분에 30점)
+        private const val MAX_EVENT_PENALTY = 100f
         private const val MAX_CONDITION_RISK = 30            // 컨디션만으로 주의 단계(40점)까지 가지는 않게
         private const val EVENT_MEMORY_MS = 10 * 60_000L
 

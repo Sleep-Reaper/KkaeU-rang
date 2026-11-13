@@ -12,20 +12,20 @@ class TripLogMapperTest {
     private fun map(msg: String) = TripLogMapper.fromEngine(LogEntry(1_000L, msg))
 
     @Test fun levelUp() {
-        val e = map("단계 변경: 정상 → 주의 (점수 45)")
+        val e = map("단계 변경: 정상 → 주의 (점수 55)")
         assertEquals(TripLogKind.LEVEL_UP, e.kind)
         assertEquals(DrowsyLevel.CAUTION, e.level)
         assertEquals("안전 → 주의 단계 (안전 점수 55점)", e.message)
     }
 
     @Test fun levelDown() {
-        val e = map("단계 변경: 경고 → 주의 (점수 67)")
+        val e = map("단계 변경: 경고 → 주의 (점수 33)")
         assertEquals(TripLogKind.LEVEL_DOWN, e.kind)
         assertEquals(DrowsyLevel.CAUTION, e.level)
     }
 
     @Test fun scoreEventBecomesSafetyDrop() {
-        val e = map("핸들 고정 후 급조작 (+25점)")
+        val e = map("핸들 고정 후 급조작 (-25점)")
         assertEquals(TripLogKind.EVENT, e.kind)
         assertEquals("핸들 고정 후 급조작", e.message)
         assertEquals(-25, e.safetyDelta)
