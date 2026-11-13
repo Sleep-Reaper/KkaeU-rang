@@ -54,12 +54,17 @@ private val APP_MODE = AppMode.LIVE_SIMULATED
 /** 실제 모드(LIVE·LIVE_SIMULATED)에서 로고(헤더 가운데)나 계기판을 길게 누르면 엔진 디버그 패널을 연다. 배포 때는 false */
 private const val LIVE_DEBUG_PANEL = true
 
-// 차량 신호 수집에 필요한 실행 중 권한 (Manifest에도 선언되어 있어야 함)
+// 차량 신호 수집·차량 제어에 필요한 실행 중 권한 (Manifest에도 선언되어 있어야 함)
 private val CAR_PERMISSIONS = arrayOf(
     "android.car.permission.CAR_SPEED",
     "android.car.permission.CAR_POWERTRAIN",
     "pleos.car.permission.CAR_DRIVE",
-    "pleos.car.permission.CAR_LIGHTS"
+    "pleos.car.permission.CAR_LIGHTS",
+    // 창문 열기·찬바람. 거부되면 창문을 열지 못하고 엔진이 음성으로 대체 안내한다
+    "pleos.car.permission.CAR_WINDOWS",
+    "pleos.car.permission.CONTROL_CAR_WINDOWS",
+    "pleos.car.permission.CAR_CLIMATE",
+    "pleos.car.permission.CONTROL_CAR_CLIMATE"
 )
 
 // 포그라운드 서비스 상시 알림용 (Android 13+). 거부돼도 서비스는 동작한다
@@ -101,7 +106,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // 창문·내비 모듈이 생기면 DrowsinessService의 KkaeuLiveSource(window = ..., navi = ...)로 넘긴다
+        // 창문·공조(cabin)와 내비 모듈은 DrowsinessService가 KkaeuLiveSource(cabin = ..., navi = ...)로 넘긴다
         // 이미 서비스가 돌고 있으면(화면 회전·재진입) 다시 시작하지 않는다
         if (KkaeuRuntime.source.value == null) {
             when (APP_MODE) {

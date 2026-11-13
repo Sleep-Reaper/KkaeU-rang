@@ -77,6 +77,8 @@ fun AlertScreen(
     onAnswerOkay: () -> Unit,
     onVoiceAnswer: () -> Unit,
     modifier: Modifier = Modifier,
+    /** 위험 단계에서 열어 둔 창문·찬바람을 원래대로 되돌린다 */
+    onCancelVehicleControl: () -> Unit = {},
 ) {
     val d = LocalDesign.current
     Box(modifier.fillMaxSize()) {
@@ -94,7 +96,7 @@ fun AlertScreen(
         when (state.level) {
             DrowsyLevel.NORMAL, DrowsyLevel.CAUTION -> CautionContent(state, onAnswerOkay)
             DrowsyLevel.WARNING -> WarningContent(state, onAnswerOkay, onVoiceAnswer)
-            DrowsyLevel.CRITICAL -> CriticalContent(state)
+            DrowsyLevel.CRITICAL -> CriticalContent(state, onCancelVehicleControl)
         }
     }
 }
@@ -410,7 +412,7 @@ private fun TouchCircle(diameter: Dp, onClick: () -> Unit) {
 // ───────────────────────── 위험 ─────────────────────────
 
 @Composable
-private fun CriticalContent(state: DrowsinessUiState) {
+private fun CriticalContent(state: DrowsinessUiState, onCancelVehicleControl: () -> Unit) {
     val d = LocalDesign.current
     val red = Color(0xFFFF4D5A)
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -439,7 +441,7 @@ private fun CriticalContent(state: DrowsinessUiState) {
                 .height(d.dp(390)),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            WindowPanel(state, Modifier.weight(831f).fillMaxHeight())
+            WindowPanel(state, onCancelVehicleControl, Modifier.weight(831f).fillMaxHeight())
             Box(
                 Modifier
                     .width(d.dp(2))
@@ -453,7 +455,7 @@ private fun CriticalContent(state: DrowsinessUiState) {
 
 /** 왼쪽: 창문 상태 목록 + 차량 그림 */
 @Composable
-private fun WindowPanel(state: DrowsinessUiState, modifier: Modifier = Modifier) {
+private fun WindowPanel(state: DrowsinessUiState, onCancelVehicleControl: () -> Unit, modifier: Modifier = Modifier) {
     val d = LocalDesign.current
     Box(modifier) {
         Column(
@@ -467,6 +469,8 @@ private fun WindowPanel(state: DrowsinessUiState, modifier: Modifier = Modifier)
             state.vehicleEvent?.blockedReason?.let {
                 Text(it, style = d.text(20, W.Medium, KkaeuColors.TextSecondary), modifier = Modifier.width(d.dp(300)))
             }
+            // 깨우랑이 창문을 열었거나 찬바람을 켠 동안에만 보인다
+            if (state.windowOpen || state.outsideAirOn) UndoVehicleControlPill(onCancelVehicleControl)
         }
         Image(
             painter = painterResource(if (state.windowOpen) R.drawable.img_car_open else R.drawable.img_car_closed),
@@ -478,6 +482,22 @@ private fun WindowPanel(state: DrowsinessUiState, modifier: Modifier = Modifier)
             contentScale = ContentScale.Fit,
         )
     }
+}
+
+/** "원래대로 되돌리기": 창문·찬바람을 되돌리고 10분 동안 자동으로 열지 않는다. 운전 중이라 크지 않게, 눈에 덜 띄는 색으로 */
+@Composable
+private fun UndoVehicleControlPill(onClick: () -> Unit) {
+    val d = LocalDesign.current
+    Text(
+        text = stringResource(R.string.danger_window_undo),
+        style = d.text(22, W.SemiBold, KkaeuColors.TextPrimary),
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(Color(0x24FFFFFF))
+            .border(d.dp(1f), Color(0x40FFFFFF), RoundedCornerShape(50))
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = d.dp(28), vertical = d.dp(12)),
+    )
 }
 
 @Composable

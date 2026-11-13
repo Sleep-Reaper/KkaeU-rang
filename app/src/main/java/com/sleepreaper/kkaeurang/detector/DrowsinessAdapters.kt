@@ -35,10 +35,13 @@ class VoiceModuleAlarm(private val voice: VoiceModule) : AlarmModule {
     override fun stop() = voice.stopAlarm()
 }
 
-/** 창문 열기 — 아직 구현되지 않음. 호출됐다는 로그만 남긴다. */
+/**
+ * 창문·공조 제어([CabinControl])가 없을 때 쓰는 대체 창문 모듈. 호출됐다는 로그만 남긴다.
+ * 실제 창문 조절은 KkaeuLiveSource가 CabinControl(실차: PleosCabinControl, 에뮬레이터: SimulatedCabinControl)로 한다.
+ */
 class NoOpWindowModule : WindowModule {
     override fun open() {
-        Log.w(TAG, "창문 열기 호출됨 (미구현: 실제로는 열리지 않음)")
+        Log.w(TAG, "창문 열기 호출됨 (창문 제어 없음: 실제로는 열리지 않음)")
     }
 
     /** 실제로 열지 못하므로 실패로 알린다 (엔진이 음성으로 대체 안내한다) */

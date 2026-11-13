@@ -89,7 +89,8 @@
     <string name="danger_title_rest">가까운 [쉼터]로 [이동]합니다</string>
     <string name="danger_window_open">창문 열림</string>
     <string name="danger_window_closed">창문 닫힘</string>
-    <string name="danger_front_seats">(앞 좌석 2개)</string>
+    <string name="danger_window_undo">원래대로 되돌리기</string>
+    <string name="danger_front_seats">(앞 좌석 1개)</string>
     <string name="danger_rear_seats">(뒷좌석 2개)</string>
     <string name="danger_route_done">가까운 쉼터로\n경로 변경 완료</string>
     <string name="danger_route_requested">가까운 쉼터로\n안내를 요청했어요</string>
@@ -112,6 +113,10 @@
     <string name="voice_default_question">주행이 평소와 조금 달라요. 괜찮으세요?</string>
     <string name="warning_forced">응답이 없어 경고를 유지 중이에요 · %1$s</string>
     <string name="live_window_opened">졸음 감지로 창문을 조금 열었어요</string>
+    <string name="live_window_closed">졸음이 가셔서 창문을 원래대로 닫았어요</string>
+    <string name="live_window_try">졸음 감지로 창문을 열려고 했어요</string>
+    <string name="live_window_blocked_rain">비가 와서 창문 대신 찬바람을 켰어요</string>
+    <string name="live_window_failed_voice">창문을 열지 못했어요. 창문을 직접 열어 환기해 주세요.</string>
 
     <!-- TripReportScreen -->
     <string name="report_headline">오늘 %1$s 깨어 있었어요 · +%2$,dP 🎉</string>
