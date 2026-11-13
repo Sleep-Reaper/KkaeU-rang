@@ -74,7 +74,8 @@ class DrowsinessService : Service() {
             KkaeuLiveSource(
                 this, voice, newScope,
                 signalSource = SimulatedSignalSource(),
-                window = SimulatedWindowModule(),   // 위험 단계의 "창문 열림" 화면까지 확인할 수 있게
+                // 가짜 창문·공조: 점수에 따라 창문 열림·찬바람 화면까지 확인할 수 있게 (Logcat 태그 Kkaeu.Cabin)
+                cabin = SimulatedCabinControl(log = { Log.d("Kkaeu.Cabin", it) }),
             )
         } else {
             KkaeuLiveSource(this, voice, newScope)

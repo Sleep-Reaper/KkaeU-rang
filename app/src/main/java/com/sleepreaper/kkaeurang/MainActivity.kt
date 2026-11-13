@@ -106,7 +106,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // 창문·내비 모듈이 생기면 DrowsinessService의 KkaeuLiveSource(window = ..., navi = ...)로 넘긴다
+        // 창문·공조(cabin)와 내비 모듈은 DrowsinessService가 KkaeuLiveSource(cabin = ..., navi = ...)로 넘긴다
         // 이미 서비스가 돌고 있으면(화면 회전·재진입) 다시 시작하지 않는다
         if (KkaeuRuntime.source.value == null) {
             when (APP_MODE) {
