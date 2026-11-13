@@ -9,6 +9,9 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import com.sleepreaper.kkaeurang.MainActivity
+import com.sleepreaper.kkaeurang.detector.NaviModule
+import com.sleepreaper.kkaeurang.detector.NoOpNaviModule
+import com.sleepreaper.kkaeurang.reststop.RestStopHelper
 import com.sleepreaper.kkaeurang.voice.VoiceModule
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -31,6 +34,7 @@ class DrowsinessService : Service() {
     private var voiceModule: VoiceModule? = null
     private var source: KkaeuLiveSource? = null
     private var notifier: DrowsinessNotifier? = null
+    private var restStopHelper: RestStopHelper? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -70,18 +74,21 @@ class DrowsinessService : Service() {
     private fun createEngine(simulated: Boolean) {
         val newScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         val voice = VoiceModule(this).also { it.init() }
+        val navi = createNavi()
         val live = if (simulated) {
             KkaeuLiveSource(
                 this, voice, newScope,
                 signalSource = SimulatedSignalSource(),
                 // 가짜 창문·공조: 점수에 따라 창문 열림·찬바람 화면까지 확인할 수 있게 (Logcat 태그 Kkaeu.Cabin)
                 cabin = SimulatedCabinControl(log = { Log.d("Kkaeu.Cabin", it) }),
+                navi = navi,
             )
         } else {
             KkaeuLiveSource(
                 this, voice, newScope,
                 // 실차 창문·공조 (Pleos Vehicle SDK). 권한이 거부되면 명령이 실패하고 화면에 창문 닫힘으로 보인다
                 cabin = PleosCabinControl(this, log = { Log.d("Kkaeu.Cabin", it) }),
+                navi = navi,
             )
         }
         scope = newScope
@@ -102,10 +109,29 @@ class DrowsinessService : Service() {
         }
     }
 
+    /**
+     * 졸음쉼터 경유지 추가(내비 연동). [RestStopHelper]는 서비스가 한 번 만들고 종료 때 정리한다.
+     * 내비 서비스를 쓸 수 없으면 미구현 모듈로 대체하고, 엔진이 음성으로 대체 안내한다.
+     */
+    private fun createNavi(): NaviModule = try {
+        val helper = RestStopHelper(this).also { it.start() }
+        restStopHelper = helper
+        RestStopNaviModule(helper)
+    } catch (e: Exception) {
+        Log.e(TAG, "내비 연동 시작 실패 → 졸음쉼터 안내 없이 동작", e)
+        NoOpNaviModule()
+    }
+
     override fun onDestroy() {
         Log.d(TAG, "졸음 감시 종료")
         KkaeuRuntime.clear()
         source?.stop()          // 엔진을 voiceModule보다 먼저 정리
+        try {
+            restStopHelper?.stop()
+        } catch (e: Exception) {
+            Log.w(TAG, "내비 연동 정리 실패", e)
+        }
+        restStopHelper = null
         voiceModule?.release()
         scope?.cancel()
         notifier?.cancelAlert()
