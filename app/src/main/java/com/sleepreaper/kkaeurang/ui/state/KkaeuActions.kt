@@ -18,7 +18,7 @@ interface KkaeuActions {
     /** TODO(integration): 쉼터 안내 닫기를 판단 엔진/네비 쪽에 알림 (같은 쉼터를 바로 다시 띄우지 않도록) */
     fun onDismissRestStop()
 
-    /** TODO(integration): 차량 제어 모듈에 직전 제어(창문 열기·찬바람 등) 되돌리기 요청 */
+    /** 위험 화면 "원래대로 되돌리기": 창문·찬바람을 원래대로 되돌리고 10분 동안 자동으로 다시 열지 않는다 */
     fun onCancelVehicleControl()
 
     /** TODO(integration): 주행 기록 저장 후 리포트 상태 정리 */

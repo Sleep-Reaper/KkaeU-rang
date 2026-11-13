@@ -88,9 +88,10 @@ data class DrowsinessUiState(
     val lastScoreChange: ScoreChange? = null,
     // TODO(integration): 경고음 켬/끔은 VoiceModule 알람 음소거 설정과 맞춘다
     val warningSoundOn: Boolean = true,
-    // TODO(integration): 차량 제어 모듈(창문·공조)과 날씨 정보에서 채운다
+    // 깨우랑이 연 창문·켠 찬바람. KkaeuLiveSource가 WindowController 판단으로 매초 채운다
     val windowOpen: Boolean = false,
     val outsideAirOn: Boolean = false,
+    // TODO(integration): 날씨 정보에서 채운다
     val weather: Weather = Weather.PARTLY_CLOUDY,
     /** 이번 주행의 안전 점수 기록 (오래된 것부터, 일정 간격으로 쌓음). 홈 "이번 주행 점수 로그" 그래프 */
     val safetyHistory: List<Int> = emptyList(),

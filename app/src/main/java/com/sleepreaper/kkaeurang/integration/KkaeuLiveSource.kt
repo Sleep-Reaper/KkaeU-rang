@@ -140,6 +140,9 @@ class KkaeuLiveSource(
     private var forcedUntilMs = 0L
     private var vehicleEventUntilMs = 0L
     private var lastLogSeen: LogEntry? = null
+    private var engineLogs: List<LogEntry> = emptyList()
+    /** 창문·찬바람 사건 ("창문 30% 열기" 등). 디버그 패널에서 엔진 사건 로그와 시간순으로 합쳐 보여 준다 */
+    private val cabinLogs = ArrayDeque<LogEntry>()
 
     private var collectJobs: List<Job> = emptyList()
     private var started = false
@@ -299,8 +302,22 @@ class KkaeuLiveSource(
             if (!entry.message.startsWith(DEBUG_LOG_PREFIX)) eventCount++
             _state.update { it.copy(lastScoreChange = ScoreChange(m.groupValues[1], m.groupValues[2].toInt())) }
         }
+        engineLogs = logs
+        refreshDebugLogs()
+    }
+
+    /** 창문·찬바람 사건을 디버그 패널 사건 로그에 남긴다 (Logcat은 CabinActuator가 이미 남긴다) */
+    private fun noteCabin(time: Long, message: String) {
+        cabinLogs.addLast(LogEntry(time, message))
+        while (cabinLogs.size > DEBUG_LOG_LINES) cabinLogs.removeFirst()
+        refreshDebugLogs()
+    }
+
+    /** 엔진 사건 로그 + 창문·찬바람 사건을 시간순으로 합쳐 최신 [DEBUG_LOG_LINES]줄 (최신이 위) */
+    private fun refreshDebugLogs() {
+        val merged = (engineLogs + cabinLogs).sortedBy { it.time }.takeLast(DEBUG_LOG_LINES).reversed()
         _liveDebugState.update { s ->
-            s.copy(logs = logs.takeLast(DEBUG_LOG_LINES).reversed().map { "${LOG_TIME_FORMAT.format(Date(it.time))}  ${it.message}" })
+            s.copy(logs = merged.map { "${LOG_TIME_FORMAT.format(Date(it.time))}  ${it.message}" })
         }
     }
 
@@ -488,6 +505,7 @@ class KkaeuLiveSource(
         if (decision.windowPercent != prev.windowPercent) windowFailed = false
         if (decision.coolAir != prev.coolAir) coolAirFailed = false
         actuator.apply(decision, sample.isPark)
+        cabinLogFor(prev, decision, sample.isPark)?.let { noteCabin(now, it) }
 
         val message = when (cabinNoticeFor(prev, decision, actuator.driverOverride, windowFailed, sample.isPark)) {
             CabinNotice.BLOCKED_BY_RAIN ->
@@ -518,6 +536,7 @@ class KkaeuLiveSource(
             CabinActuator.Event.WINDOW_FAILED -> {
                 windowFailed = true
                 Log.w(CABIN_TAG, "창문 제어 실패 → 음성 대체 안내")
+                noteCabin(now(), "창문 제어 실패 → 음성 안내로 대체")
                 driverVoice.say(appContext.getString(R.string.live_window_failed_voice))
                 // 실제 차에서는 실패가 늦게 올 수 있으므로, 이미 띄운 "창문을 열었어요"를 거둔다
                 vehicleEventUntilMs = 0L
@@ -526,10 +545,12 @@ class KkaeuLiveSource(
             CabinActuator.Event.COOL_AIR_FAILED -> {
                 coolAirFailed = true
                 Log.w(CABIN_TAG, "찬바람 제어 실패")
+                noteCabin(now(), "찬바람 제어 실패")
                 _state.update { it.copy(outsideAirOn = false) }
             }
             CabinActuator.Event.DRIVER_OVERRIDE -> {
                 Log.d(CABIN_TAG, "운전자가 창문을 직접 조작 → 이번 주행 동안 창문 자동 조절 중지")
+                noteCabin(now(), "운전자가 창문 직접 조작 → 이번 주행 동안 자동 조절 멈춤")
                 _state.update { it.copy(windowOpen = false) }
             }
         }
@@ -583,6 +604,7 @@ class KkaeuLiveSource(
         } else {
             Log.d(CABIN_TAG, "운전자가 되돌리기를 누름 → 창문·찬바람 원래대로, 10분 동안 자동으로 열지 않음")
             windowController.suppress(now())
+            noteCabin(now(), "되돌리기 누름 → 창문·찬바람 원래대로, 10분 동안 다시 열지 않음")
             lastCabinDecision = WindowController.Decision.CLOSED
             actuator.apply(WindowController.Decision.CLOSED, isPark = false)
         }
