@@ -15,6 +15,7 @@ package com.sleepreaper.kkaeurang.detector
  * 3. P단 정차: 바로 닫고 찬바람도 끈다 (엔진도 이때 경고를 해제한다)
  * 4. 고속: [HIGH_SPEED_KMH](100km/h) 이상이면 최대 [HIGH_SPEED_MAX_PERCENT](20%)까지만 연다
  * 5. 비: 창문은 열지 않고 찬바람만 켠다
+ * 6. 운전자가 "되돌리기"를 누르면([suppress]) 바로 닫고 [SUPPRESS_MS](10분) 동안 다시 열지 않는다 (P단이 되면 풀림)
  *
  * 고속·비 조건은 **내보내는 값에만** 적용한다. 내부 단계는 그대로라, 비가 그치거나 속도가 줄면 다음 틱에 바로 원래만큼 열린다.
  */
@@ -47,12 +48,27 @@ class WindowController {
         private set
 
     private var lowerSince: Long? = null     // 목표가 지금보다 낮아지기 시작한 시각
+    private var suppressedUntil = 0L         // 운전자가 "되돌리기"를 누르면 이 시각까지 열지 않는다
+
+    /** 지금 운전자 취소로 창문·찬바람을 쉬는 중인지 */
+    fun isSuppressed(now: Long) = now < suppressedUntil
+
+    /**
+     * 운전자가 "되돌리기"를 눌렀을 때 부른다. 바로 닫힘 상태로 돌아가고 [SUPPRESS_MS](10분) 동안 다시 열지 않는다.
+     * P단이 되면(주행 끝) 풀린다.
+     */
+    fun suppress(now: Long) {
+        reset()
+        suppressedUntil = now + SUPPRESS_MS
+    }
 
     fun update(input: Input): Decision {
         if (input.isPark) {
             reset()
+            suppressedUntil = 0L
             return Decision.CLOSED
         }
+        if (isSuppressed(input.now)) return Decision.CLOSED
 
         val wanted = wantedPercent(input)
         when {
@@ -107,6 +123,9 @@ class WindowController {
         const val WIDE_PERCENT = 60
 
         const val LOWER_HOLD_MS = 30_000L
+
+        /** 운전자가 "되돌리기"를 누른 뒤 다시 열지 않는 시간 */
+        const val SUPPRESS_MS = 10 * 60_000L
 
         const val HIGH_SPEED_KMH = 100f
         const val HIGH_SPEED_MAX_PERCENT = 20

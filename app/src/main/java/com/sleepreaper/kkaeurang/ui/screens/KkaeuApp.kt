@@ -151,6 +151,7 @@ private fun MainFrame(
                             state = state,
                             onAnswerOkay = actions::onAnswerOkay,
                             onVoiceAnswer = actions::onVoiceAnswer,
+                            onCancelVehicleControl = actions::onCancelVehicleControl,
                         )
                     } else {
                         HomeScreen(

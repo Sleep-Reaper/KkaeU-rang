@@ -493,11 +493,11 @@ class KkaeuLiveSource(
             decision.blockedByRain && !prev.blockedByRain && decision.coolAir ->
                 VehicleControlEvent(
                     message = appContext.getString(R.string.live_window_try),
-                    canCancel = false,
+                    canCancel = true,
                     blockedReason = appContext.getString(R.string.live_window_blocked_rain),
                 )
             decision.windowPercent > 0 && prev.windowPercent == 0 && !actuator.driverOverride && !windowFailed ->
-                VehicleControlEvent(appContext.getString(R.string.live_window_opened), canCancel = false, blockedReason = null)
+                VehicleControlEvent(appContext.getString(R.string.live_window_opened), canCancel = true, blockedReason = null)
             decision.windowPercent == 0 && !decision.coolAir && (prev.windowPercent > 0 || prev.coolAir) && !sample.isPark ->
                 VehicleControlEvent(appContext.getString(R.string.live_window_closed), canCancel = false, blockedReason = null)
             else -> null
@@ -572,10 +572,22 @@ class KkaeuLiveSource(
         _state.update { it.copy(restStop = null) }
     }
 
+    /**
+     * 운전자가 "창문 되돌리기"를 누름: 창문·찬바람을 바로 원래대로 되돌리고 10분 동안 자동으로 다시 열지 않는다.
+     * (P단이 되면 풀린다. 졸음 경고·질문 같은 엔진 동작은 그대로다)
+     */
     override fun onCancelVehicleControl() {
-        Log.w(TAG, "차량 제어 되돌리기 요청 (미연결: 창문 모듈 없음)")
+        val actuator = cabinActuator
+        if (actuator == null) {
+            Log.w(TAG, "차량 제어 되돌리기 요청 (창문·공조 제어 없음)")
+        } else {
+            Log.d(CABIN_TAG, "운전자가 되돌리기를 누름 → 창문·찬바람 원래대로, 10분 동안 자동으로 열지 않음")
+            windowController.suppress(now())
+            lastCabinDecision = WindowController.Decision.CLOSED
+            actuator.apply(WindowController.Decision.CLOSED, isPark = false)
+        }
         vehicleEventUntilMs = 0L
-        _state.update { it.copy(vehicleEvent = null) }
+        _state.update { it.copy(vehicleEvent = null, windowOpen = false, outsideAirOn = false) }
     }
 
     override fun onCloseTripReport() {

@@ -66,7 +66,7 @@ class CabinActuatorTest {
     }
 
     @Test
-    fun `60%에서 30%로 줄여도 처음 기억한 원래 위치로 되돌린다`() {
+    fun `60퍼센트에서 30퍼센트로 줄여도 처음 기억한 원래 위치로 되돌린다`() {
         setUp(initialWindow = 5)
         apply(60)
         apply(30)
@@ -192,7 +192,7 @@ class CabinActuatorTest {
     }
 
     @Test
-    fun `5% 이내 차이는 센서 오차로 본다`() {
+    fun `5퍼센트 이내 차이는 센서 오차로 본다`() {
         setUp()
         apply(30)
         waitForMove()

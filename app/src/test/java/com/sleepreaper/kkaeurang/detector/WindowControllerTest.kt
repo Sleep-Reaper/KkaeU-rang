@@ -56,39 +56,39 @@ class WindowControllerTest {
     }
 
     @Test
-    fun `졸음 80점이면 바로 30% 열고 찬바람을 켠다`() {
+    fun `졸음 80점이면 바로 30퍼센트 열고 찬바람을 켠다`() {
         val d = tick(80)
         assertEquals(30, d.windowPercent)
         assertTrue(d.coolAir)
     }
 
     @Test
-    fun `졸음 90점이면 바로 60% 연다`() {
+    fun `졸음 90점이면 바로 60퍼센트 연다`() {
         assertEquals(60, tick(90).windowPercent)
     }
 
     @Test
-    fun `30%에서 점수가 더 오르면 기다리지 않고 60%로 더 연다`() {
+    fun `30퍼센트에서 점수가 더 오르면 기다리지 않고 60퍼센트로 더 연다`() {
         tick(85)
         assertEquals(60, tick(92).windowPercent)
     }
 
     @Test
-    fun `무응답으로 위험 단계가 되면 점수가 낮아도 30% 연다`() {
+    fun `무응답으로 위험 단계가 되면 점수가 낮아도 30퍼센트 연다`() {
         assertEquals(30, tick(50, level = Level.DANGER).windowPercent)
     }
 
     // ── 줄이기·닫기 ──
 
     @Test
-    fun `60%에서 점수가 80점대로 내려가면 30초 뒤에 30%로 줄인다`() {
+    fun `60퍼센트에서 점수가 80점대로 내려가면 30초 뒤에 30퍼센트로 줄인다`() {
         tick(95)
         assertEquals(60, hold(30, 85).windowPercent)
         assertEquals(30, tick(85).windowPercent)
     }
 
     @Test
-    fun `한 번 열렸으면 70점대에서는 닫지 않고 30%를 유지한다`() {
+    fun `한 번 열렸으면 70점대에서는 닫지 않고 30퍼센트를 유지한다`() {
         tick(85)
         assertEquals(30, hold(120, 75).windowPercent)
     }
@@ -122,7 +122,7 @@ class WindowControllerTest {
     }
 
     @Test
-    fun `60%에서 70점 아래로 바로 떨어지면 30초 뒤에 한 번에 닫는다`() {
+    fun `60퍼센트에서 70점 아래로 바로 떨어지면 30초 뒤에 한 번에 닫는다`() {
         tick(95)
         assertEquals(60, hold(30, 50).windowPercent)
         assertEquals(0, tick(50).windowPercent)
@@ -148,7 +148,7 @@ class WindowControllerTest {
     // ── 고속 ──
 
     @Test
-    fun `100km_h 이상이면 최대 20%까지만 연다`() {
+    fun `100km_h 이상이면 최대 20퍼센트까지만 연다`() {
         val d = tick(95, speed = 110f)
         assertEquals(20, d.windowPercent)
         assertTrue(d.limitedBySpeed)
@@ -189,5 +189,39 @@ class WindowControllerTest {
         val d = tick(50, rain = true)
         assertFalse(d.coolAir)
         assertFalse(d.blockedByRain)
+    }
+
+    // ── 되돌리기 ──
+
+    @Test
+    fun `되돌리기를 누르면 바로 닫고 찬바람도 끈다`() {
+        tick(95)
+        controller.suppress(now)
+        val d = tick(95)
+        assertEquals(0, d.windowPercent)
+        assertFalse(d.coolAir)
+    }
+
+    @Test
+    fun `되돌린 뒤 10분 동안은 졸음 점수가 높아도 다시 열지 않는다`() {
+        tick(85)
+        controller.suppress(now)
+        repeat(599) { assertEquals(0, tick(99).windowPercent) }
+    }
+
+    @Test
+    fun `10분이 지나면 다시 판단한다`() {
+        tick(85)
+        controller.suppress(now)
+        hold(599, 85)
+        assertEquals(30, tick(85).windowPercent)
+    }
+
+    @Test
+    fun `P단이 되면 되돌리기 쉬는 시간이 풀린다`() {
+        tick(85)
+        controller.suppress(now)
+        tick(85, park = true)
+        assertEquals(30, tick(85).windowPercent)
     }
 }
