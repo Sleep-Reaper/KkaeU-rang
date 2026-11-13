@@ -114,6 +114,26 @@ class DrowsinessCheckerTest {
         assertEquals(0, voice.askCount)
     }
 
+    @Test fun conditionRisk_isPersistentBaseScore() {
+        checker.setConditionRisk(20, "수면 4시간 미만")
+        tickVarying(5)
+        assertEquals(20, result.score)
+        assertEquals(Level.NORMAL, result.level)
+        assertTrue(result.reasons.contains("출발 전 컨디션 (수면 4시간 미만)"))
+        tickVarying(600)                 // 이벤트 점수와 달리 시간이 지나도 줄지 않는다
+        assertEquals(20, result.score)
+        checker.setConditionRisk(0, "대답 없음")
+        tickVarying(1)
+        assertEquals(0, result.score)
+    }
+
+    @Test fun conditionRisk_isCappedBelowCaution() {
+        checker.setConditionRisk(80, "테스트")
+        tickVarying(1)
+        assertEquals(30, result.score)
+        assertEquals(Level.NORMAL, result.level)
+    }
+
     @Test fun steeringFreeze_addsPointsButStaysNormal() {
         tickN(12)
         assertEquals(Level.NORMAL, result.level)
@@ -368,26 +388,25 @@ class DrowsinessCheckerTest {
 
     // ── DANGER 안내와 창문·내비 실패 대체 ──
 
-    @Test fun danger_announcesByVoice() {
+    @Test fun danger_saysOnlyShelterGuidance() {
         cycle1(); nextCycle(); nextCycle()
         assertEquals(Level.DANGER, result.level)
-        assertEquals(1, voice.said.count { it.contains("졸음쉼터로 안내할게요") })
-        assertTrue(voice.said.none { it.contains("열지 못했어요") })
+        assertEquals(listOf("가까운 졸음쉼터로 안내할게요."), voice.said)
     }
 
-    @Test fun danger_windowFails_fallsBackToVoice() {
+    @Test fun danger_windowFails_staysSilentAboutWindow() {
         win.succeed = false
         cycle1(); nextCycle(); nextCycle()
         assertEquals(1, win.opens)
-        assertTrue(voice.said.any { it.contains("창문을 열지 못했어요") })
-        assertTrue(logMessages.contains("창문 열기 실패 → 음성 안내로 대체"))
+        assertEquals(listOf("가까운 졸음쉼터로 안내할게요."), voice.said)
+        assertTrue(logMessages.contains("창문 열기 실패 (음성 안내 없음)"))
     }
 
-    @Test fun danger_naviFails_fallsBackToVoice() {
+    @Test fun danger_naviFails_saysFailureOnly() {
         navi.succeed = false
         cycle1(); nextCycle(); nextCycle()
         assertEquals(1, navi.calls)
-        assertTrue(voice.said.any { it.contains("졸음쉼터 안내에 실패했어요") })
+        assertEquals(listOf("졸음쉼터 안내에 실패했어요."), voice.said)
     }
 
     @Test fun stop_cancelsVoiceAndAlarm() {

@@ -22,7 +22,7 @@ import com.sleepreaper.kkaeurang.R
 import com.sleepreaper.kkaeurang.ui.components.ConditionCard
 import com.sleepreaper.kkaeurang.ui.components.GAUGE_W
 import com.sleepreaper.kkaeurang.ui.components.KkaeuTab
-import com.sleepreaper.kkaeurang.ui.components.LifetimeStatsCard
+import com.sleepreaper.kkaeurang.ui.components.CurrentTripCard
 import com.sleepreaper.kkaeurang.ui.components.PointsCard
 import com.sleepreaper.kkaeurang.ui.components.RestStopFindCard
 import com.sleepreaper.kkaeurang.ui.components.SafetyGauge
@@ -39,7 +39,7 @@ const val EDGE_RIGHT_PX = 38
  *
  * 위: 마스코트 · 안전 점수 계기판 · 현재 컨디션 / 근처 쉼터 찾기
  * 가운데: 이번 주행 점수 로그 · 누적 포인트
- * 아래: 나의 주행 로그
+ * 아래: 현재 주행 로그 (주행 시간·거리·등급·포인트)
  * (헤더와 하단 탭은 [KkaeuApp]이 그린다)
  */
 @Composable
@@ -81,6 +81,7 @@ fun HomeScreen(
             ) {
                 ConditionCard(
                     sleep = state.sleep,
+                    sleepRange = state.sleepRange,
                     onClick = { onOpenTab(KkaeuTab.MY) },
                     modifier = Modifier
                         .fillMaxWidth()
@@ -124,9 +125,14 @@ fun HomeScreen(
 
         Spacer(Modifier.height(d.dp(22)))
 
-        // ── 아래: 나의 주행 로그 (시안 y 745~863) ──
-        LifetimeStatsCard(
-            stats = state.lifetime,
+        // ── 아래: 현재 주행 로그 (시안 y 745~863) ──
+        CurrentTripCard(
+            driveMinutes = state.tripDriveMinutes,
+            continuousDriveMinutes = state.continuousDriveMin,
+            distanceKm = state.tripDistanceKm,
+            level = state.level,
+            tripPoints = state.tripPoints,
+            isParked = state.isParked,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(d.dp(118))

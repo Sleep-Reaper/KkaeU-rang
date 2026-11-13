@@ -49,6 +49,8 @@ class DrowsinessChecker(
     private var lastAskMs: Long? = null
     private var asking = false
     private var retryCount = 0
+    private var conditionRisk = 0f                           // 출발 전 컨디션으로 정한 기본 위험도 (0이면 없음)
+    private var conditionReason: String? = null
 
     private val _result = MutableStateFlow(DrowsinessResult())
     val result: StateFlow<DrowsinessResult> = _result
@@ -123,6 +125,10 @@ class DrowsinessChecker(
             base += 15f
             reasons += "졸음 위험 시간대"
         }
+        if (conditionRisk > 0f) {
+            base += conditionRisk
+            conditionReason?.let { reasons += it }
+        }
 
         // 6) 합산 → 4단계. 무응답으로 올려 둔 단계가 더 높으면 그걸 쓴다.
         val score = (base + eventScore).roundToInt().coerceIn(0, 100)
@@ -159,16 +165,17 @@ class DrowsinessChecker(
             val last = lastWindowNaviMs
             if (last == null || now - last > WINDOW_NAVI_COOLDOWN_MS) {
                 note(now, "창문 열기, 졸음쉼터 안내 요청")
-                voice.say(DANGER_GUIDE)   // 알람 → 음성 안내 → 창문 → 경유지 순서
+                // 위험 단계 음성은 졸음쉼터 안내 결과 한 문장만: 성공하면 "안내할게요", 실패하면 "실패했어요".
+                // 창문 결과는 말하지 않는다 (화면 창문 패널이 열림·닫힘을 보여 준다)
                 window.open { ok ->
-                    if (!ok) {
-                        note(clock(), "창문 열기 실패 → 음성 안내로 대체")
-                        voice.say(WINDOW_FAIL_GUIDE)
-                    }
+                    if (!ok) note(clock(), "창문 열기 실패 (음성 안내 없음)")
                 }
                 navi.guideToRestArea { ok ->
-                    if (!ok) {
-                        note(clock(), "졸음쉼터 안내 실패 → 음성 안내로 대체")
+                    if (ok) {
+                        note(clock(), "졸음쉼터 안내 시작")
+                        voice.say(NAVI_GUIDE)
+                    } else {
+                        note(clock(), "졸음쉼터 안내 실패")
                         voice.say(NAVI_FAIL_GUIDE)
                     }
                 }
@@ -272,6 +279,17 @@ class DrowsinessChecker(
         note(now, "디버그 점수 조절 (${if (applied >= 0) "+" else ""}${applied}점)")
     }
 
+    /**
+     * 출발 전 컨디션(마지막으로 몇 시간 잤는지)으로 정한 기본 위험도.
+     * 연속 주행·위험 시간대(⑤⑥)처럼 시간이 지나도 줄지 않고 매초 점수에 더해진다 → 오늘의 시작 점수가 된다.
+     * [points]가 0이면 없앤다 (대답하지 않았거나 건너뜀 → 안전 점수 100에서 시작).
+     */
+    fun setConditionRisk(points: Int, reason: String) {
+        conditionRisk = points.coerceIn(0, MAX_CONDITION_RISK).toFloat()
+        conditionReason = "출발 전 컨디션 ($reason)".takeIf { conditionRisk > 0f }
+        note(clock(), "출발 전 컨디션: $reason, 기본 위험도 ${conditionRisk.roundToInt()}점")
+    }
+
     private fun addEvent(now: Long, point: Float, msg: String) {
         eventScore = (eventScore + point).coerceAtMost(MAX_EVENT_SCORE)
         recentEvents.addLast(now to msg)
@@ -308,9 +326,8 @@ class DrowsinessChecker(
         private const val TAG = "Kkaeu.Checker"
         private const val LEVEL_HYSTERESIS = 2                    // 단계를 내릴 때 기준 점수보다 더 내려가야 하는 점수 (사건 점수 감소 0.05/초 → 약 40초)
     private const val PARK_CONFIRM_MS = 3_000L                // P단이 이 시간 이어져야 경고를 해제
-    private const val DANGER_GUIDE = "매우 졸려 보여요. 창문을 열고 가까운 졸음쉼터로 안내할게요."
-    private const val WINDOW_FAIL_GUIDE = "창문을 열지 못했어요. 창문을 직접 열어 환기해 주세요."
-    private const val NAVI_FAIL_GUIDE = "졸음쉼터 안내에 실패했어요. 가까운 쉼터에서 쉬어 가세요."
+    private const val NAVI_GUIDE = "가까운 졸음쉼터로 안내할게요."
+    private const val NAVI_FAIL_GUIDE = "졸음쉼터 안내에 실패했어요."
     private const val PARK_GUIDE = "잘 쉬고 출발하세요."
     private const val QUESTION = "주행이 평소와 조금 달라요. 괜찮으세요?"
 
@@ -319,6 +336,7 @@ class DrowsinessChecker(
         private const val MAX_LOGS = 100
         private const val DECAY_PER_TICK = 0.05f
         private const val MAX_EVENT_SCORE = 100f
+        private const val MAX_CONDITION_RISK = 30            // 컨디션만으로 주의 단계(40점)까지 가지는 않게
         private const val EVENT_MEMORY_MS = 10 * 60_000L
 
         private const val ASK_COOLDOWN_MS = 5 * 60_000L

@@ -50,7 +50,7 @@ import kotlin.math.sin
 
 // 계기판 크기 (시안 px). 원의 중심은 상자 안 (CX, CY)
 const val GAUGE_W = 560
-const val GAUGE_H = 330
+const val GAUGE_H = 340
 private const val CX = 280f
 private const val CY = 262f
 private const val BAND_OUTER = 220f   // 색 띠 바깥 반지름
@@ -59,9 +59,58 @@ private const val RING_R = 233f       // 바깥 가는 테두리
 private const val LABEL_R = 250f      // 40·70·80 자리 숫자
 private const val TICK_IN = 158f
 private const val TICK_OUT = 169f
-// 바늘은 가운데 "92/100" 글자 바깥(안전 구역 315°~360°에서 글자와 닿지 않는 거리)에서 시작한다
+// 바늘은 가운데 "92" 글자 바깥(안전 구역 315°~360°에서 글자와 닿지 않는 거리)에서 시작한다
 private const val NEEDLE_IN = 116f
 private const val NEEDLE_OUT = 180f
+private const val NEEDLE_MIN_LEN = 22f   // 글자를 피하느라 바늘이 짧아져도 이만큼은 남긴다
+private const val BASE_CLEAR = 18f       // 바늘 밑동 동그라미(반지름 10 + 테두리)가 글자에서 떨어질 거리
+
+// 가운데 글자 자리 (시안 px, 원의 중심 기준 y. 위쪽이 음수). 글자 줄 높이에 흔들리지 않도록 기준선(baseline)으로 정한다.
+// 점수 바로 아래 "나의 안전 점수"(간격 약 11), 그 아래로 넉넉히 띄워 단계 배지(간격 약 38)
+private const val NUMBER_BASELINE = -46f
+private const val CAPTION_BASELINE = -16f
+private const val CAPTION_SIZE = 22
+private const val BADGE_TOP = 26f
+// 실제 획 높이 비율 (숫자: 글자 크기의 약 0.74, 한글: 기준선 위 약 0.85 · 아래 약 0.15)
+private const val DIGIT_HEIGHT = 0.74f
+private const val HANGUL_ASCENT = 0.85f
+private const val HANGUL_DESCENT = 0.15f
+private const val TEXT_MARGIN = 3f
+
+/**
+ * 바늘 시작 거리 (시안 px). 숫자·설명 글자 상자를 밑동 동그라미 크기만큼 넓힌 뒤, 원의 중심에서 [dir] 방향으로
+ * 나가는 선이 그 상자를 지나면 상자를 벗어난 곳에서 시작한다 → 동그라미가 글자에 닿지 않는다.
+ * 안전 단계(오른쪽 위)에서는 늘 [NEEDLE_IN].
+ */
+private fun needleStart(dir: Offset, numberHalfW: Float, numberSize: Int, captionHalfW: Float): Float {
+    val c = BASE_CLEAR + TEXT_MARGIN
+    val numberTop = NUMBER_BASELINE - numberSize * DIGIT_HEIGHT
+    val captionTop = CAPTION_BASELINE - CAPTION_SIZE * HANGUL_ASCENT
+    val captionBottom = CAPTION_BASELINE + CAPTION_SIZE * HANGUL_DESCENT
+    val exits = listOfNotNull(
+        rayExit(dir, numberHalfW + c, numberTop - c, NUMBER_BASELINE + c),
+        rayExit(dir, captionHalfW + c, captionTop - c, captionBottom + c),
+    )
+    val start = (exits.maxOrNull() ?: 0f).coerceAtLeast(NEEDLE_IN)
+    return start.coerceAtMost(NEEDLE_OUT - NEEDLE_MIN_LEN)
+}
+
+/** 중심에서 나가는 반직선이 가로 [-halfW, halfW] × 세로 [top, bottom] 상자를 빠져나가는 거리. 안 지나가면 null */
+private fun rayExit(dir: Offset, halfW: Float, top: Float, bottom: Float): Float? {
+    fun slab(o: Float, lo: Float, hi: Float): Pair<Float, Float>? =
+        if (o == 0f) {
+            if (lo <= 0f && 0f <= hi) Float.NEGATIVE_INFINITY to Float.POSITIVE_INFINITY else null
+        } else {
+            val a = lo / o
+            val b = hi / o
+            minOf(a, b) to maxOf(a, b)
+        }
+    val (x0, x1) = slab(dir.x, -halfW, halfW) ?: return null
+    val (y0, y1) = slab(dir.y, top, bottom) ?: return null
+    val enter = maxOf(x0, y0)
+    val exit = minOf(x1, y1)
+    return exit.takeIf { enter <= exit && exit > 0f }
+}
 
 /** 계기판 호: 왼쪽(180°)에서 위를 지나 오른쪽(360°)까지. 네 단계가 45°씩 나눠 갖는다 */
 private const val START = 180f
@@ -87,7 +136,7 @@ fun safetyNeedleAngle(safety: Int, level: DrowsyLevel): Float {
 
 /**
  * 안전 점수 계기판 (시안: 빨강→주황→올리브→초록 띠 + 가는 바깥 테두리 + 눈금 + 흰 바늘,
- * 가운데 "92/100", 그 아래 "✓ 안전 (Lv.4)" 배지). 애니메이션 없이 즉시 그린다.
+ * 가운데 굵은 점수 "92"와 "나의 안전 점수", 그 아래 "✓ 안전 (Lv.4)" 배지). 애니메이션 없이 즉시 그린다.
  *
  * @param onLongPress 길게 누르면 호출 (디버그 패널). null이면 아무 일 없음
  */
@@ -104,6 +153,13 @@ fun SafetyGauge(
     val levelName = stringResource(level.labelRes())
     val description = stringResource(R.string.gauge_description, safety, levelName)
     val labels = DrowsyThresholds.SAFETY_STOPS.map { it.roundToInt().toString() }
+    // 세 자리(100)는 눈금과 닿지 않게 조금 작게
+    // 세 자리(100)는 눈금과 닿지 않게 조금 작게. 기준선은 같아서 아래 글자 자리는 바뀌지 않는다
+    val numberSize = if (safety >= 100) 96 else 108
+    val numberStyle = d.text(numberSize, FontWeight.Black, KkaeuColors.TextPrimary, lineHeight = 1.0f)
+        .copy(letterSpacing = (-2).sp)
+    val caption = stringResource(R.string.gauge_caption)
+    val captionStyle = d.text(CAPTION_SIZE, W.SemiBold, KkaeuColors.TextSecondary, lineHeight = 1.0f)
 
     Box(
         modifier = modifier
@@ -219,12 +275,31 @@ fun SafetyGauge(
                 drawText(layout, topLeft = Offset(pos.x - layout.size.width / 2f, pos.y - layout.size.height / 2f))
             }
 
-            // 바늘: 가운데 숫자를 피해 떨어진 곳(빈 동그라미)에서 띠 안쪽까지. 홈에는 안전 단계일 때만 보이므로 늘 오른쪽 위를 가리킨다
+            // 가운데 점수 "92"와 바로 아래 "나의 안전 점수" (기준선에 맞춰 그린다)
+            val numberLayout = measurer.measure(safety.toString(), numberStyle)
+            val captionLayout = measurer.measure(caption, captionStyle)
+            drawText(
+                numberLayout,
+                topLeft = Offset(c.x - numberLayout.size.width / 2f, c.y + NUMBER_BASELINE * k - numberLayout.firstBaseline),
+            )
+            drawText(
+                captionLayout,
+                topLeft = Offset(c.x - captionLayout.size.width / 2f, c.y + CAPTION_BASELINE * k - captionLayout.firstBaseline),
+            )
+
+            // 바늘: 가운데 숫자·"나의 안전 점수"를 피해 떨어진 곳(빈 동그라미)에서 띠 안쪽까지.
+            // 경보 화면을 닫으면 주의 이상에서도 홈 계기판이 보이므로, 바늘이 글자를 지나면 글자 바깥에서 시작한다
             val ang = safetyNeedleAngle(safety, level)
             val rad = Math.toRadians(ang.toDouble())
             val dir = Offset(cos(rad).toFloat(), sin(rad).toFloat())
             val side = Offset(-dir.y, dir.x)
-            val base = c + dir * (NEEDLE_IN * k)
+            val needleIn = needleStart(
+                dir = dir,
+                numberHalfW = numberLayout.size.width / 2f / k,
+                numberSize = numberSize,
+                captionHalfW = captionLayout.size.width / 2f / k,
+            )
+            val base = c + dir * (needleIn * k)
             val tip = c + dir * (NEEDLE_OUT * k)
             val needle = Path().apply {
                 (base + side * (4.2f * k)).let { moveTo(it.x, it.y) }
@@ -239,36 +314,13 @@ fun SafetyGauge(
             drawCircle(Color.White, radius = 10f * k, center = base, style = Stroke(3.6f * k))
         }
 
-        // 가운데 점수 "92/100"
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .offset(x = d.dp(-2), y = d.dp(CY - 143f)),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            Text(
-                text = safety.toString(),
-                // 세 자리(100)는 바늘·눈금과 닿지 않게 조금 작게
-                style = d.text(if (safety >= 100) 92 else 106, W.Bold, KkaeuColors.TextPrimary, lineHeight = 1.0f)
-                    .copy(letterSpacing = (-2).sp),
-                modifier = Modifier.alignByBaseline(),
-            )
-            Text(
-                text = stringResource(R.string.gauge_out_of),
-                style = d.text(31, W.SemiBold, Color(0xFF959DF0), lineHeight = 1.0f),
-                modifier = Modifier
-                    .alignByBaseline()
-                    .padding(start = d.dp(6)),
-            )
-        }
-
-        // 단계 배지 "✓ 안전 (Lv.4)"
+        // 단계 배지 "✓ 안전 (Lv.4)": "나의 안전 점수"에서 넉넉히 띄운다
         LevelBadge(
             level = level,
             text = stringResource(R.string.gauge_level_badge, levelName, level.lvNumber()),
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .offset(y = d.dp(CY + 14f)),
+                .offset(y = d.dp(CY + BADGE_TOP)),
         )
     }
 }

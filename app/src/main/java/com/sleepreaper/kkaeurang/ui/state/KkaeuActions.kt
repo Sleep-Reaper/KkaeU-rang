@@ -1,14 +1,16 @@
 package com.sleepreaper.kkaeurang.ui.state
 
+import com.sleepreaper.kkaeurang.ui.model.SleepRange
+
 /**
  * 화면에서 일어나는 사용자 동작. UI는 이 인터페이스로만 바깥에 알린다.
  * 지금은 FakeKkaeuStateSource가 로그 출력 + 상태 변경만 한다.
  */
 interface KkaeuActions {
     /**
-     * 화면의 "괜찮아요"·"터치로 응답하기" 버튼 (음성 응답의 백업 수단).
-     * TODO(integration): 판단 엔진에 "운전자 응답"으로 전달 (점수 감소·적립 재개 판단은 엔진이),
-     *  진행 중인 VoiceModule 질문/알람 정리는 MainActivity가 가진 VoiceModule로.
+     * 화면의 "괜찮아요"·"터치로 응답하기" 버튼 (음성 응답의 백업 수단). 주의·경고·위험 어느 단계에서든
+     * 운전자가 졸리지 않다고 알린 것으로 보고, 공급자는 경보 화면을 닫는다(alertDismissed) → 홈 계기판.
+     * 진행 중인 질문이 있으면 "괜찮음"으로 대답하고, 경고음이 울리고 있으면 끈다. 점수·단계는 엔진이 정한다.
      */
     fun onAnswerOkay()
 
@@ -35,4 +37,10 @@ interface KkaeuActions {
 
     /** 홈 "근처 쉼터 찾기" 카드. 내비에 가까운 쉼터 안내를 요청한다 */
     fun onFindRestStop()
+
+    /** 출발 전 컨디션 질문: 화면 구간 버튼으로 대답 (마지막으로 몇 시간 잤는지) → 오늘의 시작 점수 */
+    fun onStartCheckInAnswer(range: SleepRange)
+
+    /** 출발 전 컨디션 질문 건너뛰기 → 100점에서 시작 */
+    fun onStartCheckInSkip()
 }
