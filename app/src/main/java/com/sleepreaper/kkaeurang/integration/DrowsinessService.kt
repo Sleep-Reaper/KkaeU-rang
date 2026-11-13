@@ -78,7 +78,11 @@ class DrowsinessService : Service() {
                 cabin = SimulatedCabinControl(log = { Log.d("Kkaeu.Cabin", it) }),
             )
         } else {
-            KkaeuLiveSource(this, voice, newScope)
+            KkaeuLiveSource(
+                this, voice, newScope,
+                // 실차 창문·공조 (Pleos Vehicle SDK). 권한이 거부되면 명령이 실패하고 음성으로 대체 안내한다
+                cabin = PleosCabinControl(this, log = { Log.d("Kkaeu.Cabin", it) }),
+            )
         }
         scope = newScope
         voiceModule = voice
