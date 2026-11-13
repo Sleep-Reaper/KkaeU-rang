@@ -18,6 +18,7 @@ import com.sleepreaper.kkaeurang.detector.NaviModule
 import com.sleepreaper.kkaeurang.detector.NoOpNaviModule
 import com.sleepreaper.kkaeurang.detector.NoOpWindowModule
 import com.sleepreaper.kkaeurang.detector.Sample
+import com.sleepreaper.kkaeurang.detector.ScoreThresholds
 import com.sleepreaper.kkaeurang.detector.SignalSource
 import com.sleepreaper.kkaeurang.detector.VehicleSignalCollector
 import com.sleepreaper.kkaeurang.detector.VoiceAnswer
@@ -33,7 +34,6 @@ import com.sleepreaper.kkaeurang.ui.model.AlertCounts
 import com.sleepreaper.kkaeurang.ui.model.SleepRange
 import com.sleepreaper.kkaeurang.ui.model.DrowsinessUiState
 import com.sleepreaper.kkaeurang.ui.model.DrowsyLevel
-import com.sleepreaper.kkaeurang.ui.model.DrowsyThresholds
 import com.sleepreaper.kkaeurang.ui.model.LifetimeStats
 import com.sleepreaper.kkaeurang.ui.model.ScoreChange
 import com.sleepreaper.kkaeurang.ui.model.StartCheckIn
@@ -225,14 +225,17 @@ class KkaeuLiveSource(
         if (level > maxLevel && !parked) maxLevel = level
         if (!parked && level > prev.level) alertCounts = alertCounts.plus(level)
         // 운전자가 닫은 경보 화면: 단계가 더 오르거나 점수가 크게 나빠지면 다시 띄운다
-        val dismissed = alertDismissal.update(level, result.score.toFloat())
+        // TODO(UI): UI 상태(DrowsinessUiState.score)와 경보 닫기(AlertDismissal)가 아직 졸음 점수(+ 방식)를 쓴다.
+        //  엔진은 안전 점수(100에서 감점)를 내보내므로 UI가 안전 점수를 바로 쓰게 바뀌면 이 변환(drowsy)을 지운다.
+        val drowsy = (ScoreThresholds.FULL - result.score).toFloat()
+        val dismissed = alertDismissal.update(level, drowsy)
 
         val accrual = nextAccrualState(prev.accrualState, prev.level, level, now)
         val accruing = !parked && level == DrowsyLevel.NORMAL &&
             (accrual == AccrualState.ACCRUING || accrual == AccrualState.RESUMED)
         if (accruing) awakeMs += dt
 
-        val safety = DrowsyThresholds.safetyOf(result.score.toFloat())
+        val safety = result.score   // 엔진 점수가 곧 안전 점수
         val history = if (!parked && (lastHistoryMs?.let { now - it >= HISTORY_EVERY_MS } != false)) {
             lastHistoryMs = now
             (prev.safetyHistory + safety).takeLast(MAX_HISTORY)
@@ -253,7 +256,7 @@ class KkaeuLiveSource(
 
         _state.update {
             it.copy(
-                score = result.score.toFloat(),
+                score = drowsy,
                 level = level,
                 reasons = eventReasons(result.reasons),
                 continuousDriveMin = driveStartMs?.let { start -> ((now - start) / 60_000).toInt() } ?: 0,
@@ -345,7 +348,7 @@ class KkaeuLiveSource(
             addTripLog(TripLogMapper.fromEngine(entry))
             val m = SCORE_LOG.matchEntire(entry.message) ?: continue
             if (!entry.message.startsWith(DEBUG_LOG_PREFIX)) eventCount++
-            _state.update { it.copy(lastScoreChange = ScoreChange(m.groupValues[1], m.groupValues[2].toInt())) }
+            _state.update { it.copy(lastScoreChange = ScoreChange(m.groupValues[1], -m.groupValues[2].toInt())) }
         }
         engineLogs = logs
         refreshDebugLogs()
@@ -904,7 +907,8 @@ class KkaeuLiveSource(
 
     // ───────────────────────── LiveDebugControls (디버그 패널) ─────────────────────────
 
-    override fun adjustScore(delta: Int) = checker.debugAdjustEventScore(delta.toFloat())
+    // 패널의 "+"는 감점 증가(= 안전 점수 하락)다. TODO(UI): 패널 표기를 안전 점수 기준(+면 안전 점수 상승)으로 바꾸면 부호를 뒤집는다.
+    override fun adjustScore(delta: Int) = checker.debugAdjustPenalty(delta.toFloat())
 
     override fun advanceTime(minutes: Int) {
         clockOffsetMs += minutes * 60_000L
@@ -995,7 +999,7 @@ class KkaeuLiveSource(
         const val CHECKIN_AUTO_START_SEC = 10           // 대답이 없으면 이만큼 기다렸다가 100점으로 시작
         const val MAX_TRIP_LOGS = 300
         val SCORE_LOG = Regex("""^(.+) \(([+-]\d+)점\)$""")
-        const val DEBUG_LOG_PREFIX = "디버그 "   // DrowsinessChecker.debugAdjustEventScore 로그
+        const val DEBUG_LOG_PREFIX = "디버그 "   // DrowsinessChecker.debugAdjustPenalty 로그
 
         // 디버그 패널
         const val DEBUG_LOG_LINES = 12

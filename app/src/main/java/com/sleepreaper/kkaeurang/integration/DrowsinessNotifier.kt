@@ -82,7 +82,7 @@ class DrowsinessNotifier(
 
     private fun statusText(level: Level, score: Int) = when (level) {
         Level.NORMAL -> "졸음 감지 중"
-        Level.CAUTION -> "주의 · 점수 $score"
+        Level.CAUTION -> "주의 · 안전 점수 $score"
         Level.WARNING -> "경고 · 휴식이 필요해요"
         Level.DANGER -> "위험 · 졸음쉼터로 안내합니다"
     }
