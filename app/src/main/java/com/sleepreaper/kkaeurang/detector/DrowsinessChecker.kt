@@ -38,6 +38,7 @@ class DrowsinessChecker(
 
     private var eventScore = 0f                              // ①~④ + 운전자 응답 가산, 시간이 지나면 감소
     private var driveStartMs: Long? = null                   // ⑤ 연속 주행 시작 시각
+    private var parkSinceMs: Long? = null                    // P단이 이어지기 시작한 시각 (P단이 아니면 null)
     private val recentEvents = ArrayDeque<Pair<Long, String>>()  // 이유 문장용
 
     private var lastLevel = Level.NORMAL
@@ -92,8 +93,11 @@ class DrowsinessChecker(
         // 2) 연속 주행 시간 (P단이면 휴식으로 보고 초기화, 신호 대기(D단)는 유지)
         driveStartMs = if (s.isPark) null else (driveStartMs ?: now)
 
-        // 2-1) 경고 이상에서 P단으로 정차하면 휴식으로 보고 상태를 해제한다
-        if (s.isPark && lastLevel >= Level.WARNING) releaseOnPark(now)
+        // 2-1) 경고 이상에서 P단으로 정차하면 휴식으로 보고 상태를 해제한다.
+        //      기어 신호가 잠시 P로 읽히는 경우를 막기 위해 P단이 [PARK_CONFIRM_MS] 이어질 때만 해제한다.
+        parkSinceMs = if (s.isPark) (parkSinceMs ?: now) else null
+        val parkedFor = parkSinceMs?.let { now - it } ?: 0L
+        if (s.isPark && parkedFor >= PARK_CONFIRM_MS && lastLevel >= Level.WARNING) releaseOnPark(now)
 
         // 3) 이벤트 규칙 ①~④ — 시작된 순간에만 점수 추가
         if (DrowsinessRules.isSuddenCorrection(list)) addEvent(now, 25f, "핸들 고정 후 급조작")
@@ -284,7 +288,8 @@ class DrowsinessChecker(
 
     companion object {
         private const val TAG = "Kkaeu.Checker"
-        private const val DANGER_GUIDE = "매우 졸려 보여요. 창문을 열고 가까운 졸음쉼터로 안내할게요."
+        private const val PARK_CONFIRM_MS = 3_000L                // P단이 이 시간 이어져야 경고를 해제
+    private const val DANGER_GUIDE = "매우 졸려 보여요. 창문을 열고 가까운 졸음쉼터로 안내할게요."
     private const val WINDOW_FAIL_GUIDE = "창문을 열지 못했어요. 창문을 직접 열어 환기해 주세요."
     private const val NAVI_FAIL_GUIDE = "졸음쉼터 안내에 실패했어요. 가까운 쉼터에서 쉬어 가세요."
     private const val PARK_GUIDE = "잘 쉬고 출발하세요."

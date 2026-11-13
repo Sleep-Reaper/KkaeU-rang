@@ -257,13 +257,40 @@ class DrowsinessCheckerTest {
         assertEquals(Level.WARNING, result.level)
 
         src.park = true
-        tickN(1)
+        tickN(4)                               // P단 3초 유지 확인 후 해제
 
         assertEquals(Level.NORMAL, result.level)
         assertEquals(0, result.score)
         assertTrue(alarm.stops >= 1)
         assertTrue(voice.said.contains("잘 쉬고 출발하세요."))
         assertTrue(logMessages.contains("정차(P단) → 경고 해제"))
+    }
+
+    @Test fun parkedAtWarning_notReleasedBeforeConfirmTime() {
+        cycle1(); nextCycle()
+        assertEquals(Level.WARNING, result.level)
+
+        src.park = true
+        tickN(3)                               // P단 시작 + 2초: 아직 3초가 아니다
+
+        assertEquals(Level.WARNING, result.level)
+        assertTrue(voice.said.none { it == "잘 쉬고 출발하세요." })
+        assertEquals(0, alarm.stops)
+    }
+
+    @Test fun parkFlicker_doesNotRelease() {
+        cycle1(); nextCycle()
+        assertEquals(Level.WARNING, result.level)
+
+        src.park = true
+        tickN(2)                               // 잠깐 P로 읽힘
+        src.park = false
+        tickN(1)                               // 다시 D단 → 타이머 초기화
+        src.park = true
+        tickN(2)                               // 다시 P: 처음부터 세야 한다
+
+        assertEquals(Level.WARNING, result.level)
+        assertTrue(voice.said.none { it == "잘 쉬고 출발하세요." })
     }
 
     @Test fun parkedAtWarning_announcesOnlyOnce() {
@@ -280,7 +307,7 @@ class DrowsinessCheckerTest {
         assertEquals(Level.WARNING, result.level)
 
         src.park = true
-        tickN(1)
+        tickN(4)
         assertEquals(Level.NORMAL, result.level)
     }
 
@@ -290,7 +317,7 @@ class DrowsinessCheckerTest {
         val before = result.score
 
         src.park = true
-        tickN(1)
+        tickN(5)
 
         assertTrue(voice.said.isEmpty())
         assertTrue("주의 단계에서는 점수를 초기화하지 않는다 (before=$before, now=${result.score})", result.score >= before - 1)
