@@ -323,6 +323,49 @@ class DrowsinessCheckerTest {
         assertTrue("주의 단계에서는 점수를 초기화하지 않는다 (before=$before, now=${result.score})", result.score >= before - 1)
     }
 
+    // ── 단계 경계 여유(히스테리시스) ──
+
+    @Test fun warning_holdsJustBelowThreshold_thenReleasesWhenLowEnough() {
+        checker.debugAdjustEventScore(72f)
+        tickVarying(1)
+        assertEquals(Level.WARNING, result.level)
+        assertEquals(1, alarm.starts)
+
+        checker.debugAdjustEventScore(-3f)          // 69점: 70 미만이지만 여유(2점) 안
+        tickVarying(1)
+        assertEquals(Level.WARNING, result.level)
+        assertEquals(0, alarm.stops)
+
+        checker.debugAdjustEventScore(-3f)          // 66점: 여유를 벗어남
+        tickVarying(1)
+        assertEquals(Level.CAUTION, result.level)
+        assertEquals(1, alarm.stops)
+    }
+
+    @Test fun levelRisesWithoutHysteresis() {
+        checker.debugAdjustEventScore(71f)          // 70 이상이면 바로 경고
+        tickVarying(1)
+        assertEquals(Level.WARNING, result.level)
+        assertEquals(1, alarm.starts)
+    }
+
+    @Test fun danger_holdsJustBelowThreshold_withoutRepeatingWindowAndNavi() {
+        checker.debugAdjustEventScore(85f)
+        tickVarying(1)
+        assertEquals(Level.DANGER, result.level)
+        assertEquals(1, win.opens)
+
+        checker.debugAdjustEventScore(-6f)          // 79점: 80 미만이지만 여유 안
+        tickVarying(1)
+        assertEquals(Level.DANGER, result.level)
+
+        checker.debugAdjustEventScore(-3f)          // 76점: 여유를 벗어남 → 경고
+        tickVarying(1)
+        assertEquals(Level.WARNING, result.level)
+        assertEquals(0, alarm.stops)                // 경고 이상이라 알람은 계속
+        assertEquals(1, win.opens)
+    }
+
     // ── DANGER 안내와 창문·내비 실패 대체 ──
 
     @Test fun danger_announcesByVoice() {
