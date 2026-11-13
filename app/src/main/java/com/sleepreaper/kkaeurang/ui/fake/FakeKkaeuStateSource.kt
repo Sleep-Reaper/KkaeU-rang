@@ -11,6 +11,8 @@ import com.sleepreaper.kkaeurang.ui.debug.DebugUiState
 import com.sleepreaper.kkaeurang.ui.debug.KkaeuDebugControls
 import com.sleepreaper.kkaeurang.ui.debug.ReasonEvent
 import com.sleepreaper.kkaeurang.ui.model.AccrualState
+import com.sleepreaper.kkaeurang.ui.model.AlertCounts
+import com.sleepreaper.kkaeurang.ui.model.SleepRange
 import com.sleepreaper.kkaeurang.ui.model.DrowsinessUiState
 import com.sleepreaper.kkaeurang.ui.model.DrowsyLevel
 import com.sleepreaper.kkaeurang.ui.model.DrowsyThresholds
@@ -19,10 +21,14 @@ import com.sleepreaper.kkaeurang.ui.model.RestStopInfo
 import com.sleepreaper.kkaeurang.ui.model.RestStopType
 import com.sleepreaper.kkaeurang.ui.model.ScoreChange
 import com.sleepreaper.kkaeurang.ui.model.SleepCondition
+import com.sleepreaper.kkaeurang.ui.model.StartCheckIn
+import com.sleepreaper.kkaeurang.ui.model.TripLogEntry
+import com.sleepreaper.kkaeurang.ui.model.TripLogKind
 import com.sleepreaper.kkaeurang.ui.model.TripReport
 import com.sleepreaper.kkaeurang.ui.model.VehicleControlEvent
 import com.sleepreaper.kkaeurang.ui.model.VoiceState
 import com.sleepreaper.kkaeurang.ui.model.Weather
+import com.sleepreaper.kkaeurang.ui.state.AlertDismissal
 import com.sleepreaper.kkaeurang.ui.state.KkaeuActions
 import com.sleepreaper.kkaeurang.ui.state.KkaeuStateSource
 import kotlinx.coroutines.Job
@@ -64,6 +70,11 @@ class FakeKkaeuStateSource(application: Application) :
     private var eventCount = 0
     private var restCount = 0
     private val responseTimesMs = mutableListOf<Long>()
+    private var alertCounts = AlertCounts()
+    private var tripStartMs = System.currentTimeMillis()
+    private val tripLogs = ArrayList<TripLogEntry>()
+    private val alertDismissal = AlertDismissal()
+    private var checkInJob: Job? = null
 
     // 틱(1초) 단위 타이머
     private var resumedTicksLeft = 0
@@ -83,6 +94,7 @@ class FakeKkaeuStateSource(application: Application) :
                 tick()
             }
         }
+        beginStartCheckIn()
     }
 
     // ───────────────────────── 상태 갱신 공통 ─────────────────────────
@@ -95,6 +107,12 @@ class FakeKkaeuStateSource(application: Application) :
         next = next.copy(score = score, level = levelFor(score, next.forcedWarningRemainSec))
         if (next.level != prev.level) next = onLevelChanged(prev.level, next)
         if (next.level > maxLevel) maxLevel = next.level
+        if (next.level > prev.level) alertCounts = alertCounts.plus(next.level)
+        if (next.level != prev.level) {
+            val kind = if (next.level > prev.level) TripLogKind.LEVEL_UP else TripLogKind.LEVEL_DOWN
+            log(kind, str(R.string.fake_log_level, levelName(prev.level), levelName(next.level), next.safetyScore), level = next.level)
+        }
+        next = next.copy(alertDismissed = alertDismissal.update(next.level, next.score))
         _state.value = next
     }
 
@@ -121,6 +139,8 @@ class FakeKkaeuStateSource(application: Application) :
                     )
                 }
                 if (new == DrowsyLevel.CRITICAL && r.restStop == null) r = r.copy(restStop = sampleRestStop())
+                // 시연에서는 졸음쉼터 안내가 늘 성공한 것으로 본다 (실제는 엔진이 내비 결과로 말한다)
+                if (new == DrowsyLevel.CRITICAL && old < DrowsyLevel.CRITICAL) r = r.copy(voiceGuide = str(R.string.danger_guide_navi_ok), restGuideOk = true)
                 r
             }
 
@@ -156,7 +176,11 @@ class FakeKkaeuStateSource(application: Application) :
     /** 1초마다: 주행 1분 진행, 포인트 적립, 각종 타이머 */
     private fun tick() = update { s ->
         if (s.isParked) return@update s
-        var r = s.copy(continuousDriveMin = s.continuousDriveMin + 1, tripDriveMinutes = s.tripDriveMinutes + 1)
+        var r = s.copy(
+            continuousDriveMin = s.continuousDriveMin + 1,
+            tripDriveMinutes = s.tripDriveMinutes + 1,
+            tripDistanceKm = s.tripDistanceKm + FAKE_KM_PER_MIN,
+        )
 
         val accruing = r.level == DrowsyLevel.NORMAL &&
             (r.accrualState == AccrualState.ACCRUING || r.accrualState == AccrualState.RESUMED)
@@ -221,6 +245,9 @@ class FakeKkaeuStateSource(application: Application) :
         voiceJob?.cancel()
         // 리포트의 "평균 반응 속도"는 음성 질문에 대한 응답만 센다 (경고 중 버튼 누르기까지의 시간은 제외)
         if (before.voiceState in ASKING_STATES) responseTimesMs += responseMs
+        // 졸리지 않다는 대답 → 경보 화면을 닫고 홈 계기판으로
+        alertDismissal.dismiss(before.level, before.score)
+        log(TripLogKind.ANSWER, str(R.string.fake_log_answer))
 
         update {
             val halved = floor(it.score / 2f) // 응답하면 점수 절반
@@ -311,6 +338,47 @@ class FakeKkaeuStateSource(application: Application) :
         update { it.copy(restStop = (it.restStop ?: sampleRestStop()).copy(isWaypointAdded = true)) }
     }
 
+    override fun onStartCheckInAnswer(range: SleepRange) {
+        Log.d(TAG, "onStartCheckInAnswer $range")
+        finishCheckIn(range)
+    }
+
+    override fun onStartCheckInSkip() {
+        Log.d(TAG, "onStartCheckInSkip")
+        finishCheckIn(null)
+    }
+
+    // ───────────────────────── 출발 전 컨디션 질문 흉내 ─────────────────────────
+
+    /** 묻는 척(3초) → 듣는 척(6초) → 대답 없음 → 10초 기다렸다가 100점으로 시작. 버튼을 누르면 바로 반영 */
+    private fun beginStartCheckIn() {
+        _state.value = _state.value.copy(startCheckIn = StartCheckIn(VoiceState.ASKING, str(R.string.checkin_question)))
+        checkInJob?.cancel()
+        checkInJob = viewModelScope.launch {
+            delay(ASK_MS)
+            updateCheckIn { it.copy(voiceState = VoiceState.LISTENING) }
+            delay(LISTEN_MS)
+            updateCheckIn { it.copy(voiceState = VoiceState.NO_RESPONSE) }
+            for (sec in CHECKIN_AUTO_START_SEC downTo 1) {
+                updateCheckIn { it.copy(autoStartSec = sec) }
+                delay(TICK_MS)
+            }
+            finishCheckIn(null)
+        }
+    }
+
+    private fun updateCheckIn(transform: (StartCheckIn) -> StartCheckIn) {
+        val s = _state.value
+        s.startCheckIn?.let { _state.value = s.copy(startCheckIn = transform(it)) }
+    }
+
+    private fun finishCheckIn(range: SleepRange?) {
+        if (_state.value.startCheckIn == null) return
+        checkInJob?.cancel()
+        val penalty = 100f - (range?.startSafety ?: 100)
+        update { it.copy(startCheckIn = null, sleepRange = range, score = maxOf(it.score, penalty)) }
+    }
+
     // ───────────────────────── KkaeuDebugControls ─────────────────────────
 
     override fun setScore(score: Float) = update { it.copy(score = score) }
@@ -319,6 +387,7 @@ class FakeKkaeuStateSource(application: Application) :
         eventCount++
         val text = str(event.reasonTextRes)
         val logLabel = str(event.logLabelRes)
+        log(TripLogKind.EVENT, logLabel, safetyDelta = -event.scoreDelta.roundToInt())
         update {
             val newScore = (it.score + event.scoreDelta).coerceIn(0f, 100f)
             it.copy(
@@ -375,6 +444,7 @@ class FakeKkaeuStateSource(application: Application) :
         if (parked) {
             voiceJob?.cancel()
             if (s.restStop?.isWaypointAdded == true) restCount++
+            log(TripLogKind.END, str(R.string.trip_log_end))
             val report = TripReport(
                 driveMinutes = s.tripDriveMinutes,
                 awakeMinutes = s.awakeMinutes,
@@ -383,6 +453,14 @@ class FakeKkaeuStateSource(application: Application) :
                 maxLevel = maxLevel,
                 eventCount = eventCount,
                 restCount = restCount,
+                startedAtMs = tripStartMs,
+                endedAtMs = System.currentTimeMillis(),
+                distanceKm = s.tripDistanceKm,
+                averageSafety = s.safetyHistory.takeIf { it.isNotEmpty() }?.average()?.roundToInt(),
+                startSafety = s.sleepRange?.startSafety ?: 100,
+                safetyHistory = s.safetyHistory,
+                alertCounts = alertCounts,
+                logs = tripLogs.toList(),
             )
             vehicleEventTicksLeft = 0
             update {
@@ -493,6 +571,7 @@ class FakeKkaeuStateSource(application: Application) :
             isParked = parked,
             isRiskTimeZone = s.isRiskTimeZone,
             warningSoundOn = s.warningSoundOn,
+            sleepRange = s.sleepRange,
         )
     }
 
@@ -502,6 +581,11 @@ class FakeKkaeuStateSource(application: Application) :
         eventCount = 0
         restCount = 0
         responseTimesMs.clear()
+        alertCounts = AlertCounts()
+        alertDismissal.clear()
+        tripStartMs = System.currentTimeMillis()
+        tripLogs.clear()
+        log(TripLogKind.START, str(R.string.trip_log_start))
         resumedTicksLeft = 0
         slowResumeTicksLeft = 0
         vehicleEventTicksLeft = 0
@@ -518,6 +602,9 @@ class FakeKkaeuStateSource(application: Application) :
             awakeMinutes = 72,
             safetyHistory = SAMPLE_HISTORY,
             lifetime = LifetimeStats(totalDriveMinutes = 278 * 60, totalDistanceKm = 12_430f, averageSafetyScore = 93),
+            tripDistanceKm = 72 * FAKE_KM_PER_MIN,
+            driveLog = SampleRecords.driveLog(),
+            benefits = SampleRecords.benefits(),
             sleep = SleepCondition(
                 sleepStartMs = System.currentTimeMillis() - (3 * 60 + 440) * 60_000L,
                 sleepMinutes = 440,
@@ -541,6 +628,23 @@ class FakeKkaeuStateSource(application: Application) :
     )
 
     private fun str(@StringRes id: Int): String = getApplication<Application>().getString(id)
+
+    private fun str(@StringRes id: Int, vararg args: Any): String = getApplication<Application>().getString(id, *args)
+
+    private fun levelName(level: DrowsyLevel) = str(
+        when (level) {
+            DrowsyLevel.NORMAL -> R.string.level_normal
+            DrowsyLevel.CAUTION -> R.string.level_caution
+            DrowsyLevel.WARNING -> R.string.level_warning
+            DrowsyLevel.CRITICAL -> R.string.level_critical
+        }
+    )
+
+    /** 이번 주행 상세 로그에 한 줄 남긴다 */
+    private fun log(kind: TripLogKind, message: String, safetyDelta: Int? = null, level: DrowsyLevel? = null) {
+        tripLogs += TripLogEntry(System.currentTimeMillis(), kind, message, safetyDelta, level)
+        if (tripLogs.size > MAX_TRIP_LOGS) tripLogs.removeAt(0)
+    }
 
     private fun now() = SystemClock.elapsedRealtime()
 
@@ -566,6 +670,8 @@ class FakeKkaeuStateSource(application: Application) :
         val ASKING_STATES = setOf(VoiceState.ASKING, VoiceState.LISTENING, VoiceState.NO_RESPONSE)
 
         const val VOICE_ANSWER_MS = 2_000L
+        const val CHECKIN_AUTO_START_SEC = 10
+        const val MAX_TRIP_LOGS = 300
         const val HISTORY_EVERY_MIN = 10        // 그래프 점 간격 (시연 시간으로 10분 = 실제 10초)
         const val MAX_HISTORY = 24
         const val FAKE_KM_PER_MIN = 1.5f        // 시속 90km

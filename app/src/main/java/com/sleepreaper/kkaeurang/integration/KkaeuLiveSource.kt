@@ -27,17 +27,25 @@ import com.sleepreaper.kkaeurang.ui.debug.DebugAnswer
 import com.sleepreaper.kkaeurang.ui.debug.DriveScenario
 import com.sleepreaper.kkaeurang.ui.debug.LiveDebugControls
 import com.sleepreaper.kkaeurang.ui.debug.LiveDebugState
+import com.sleepreaper.kkaeurang.ui.fake.SampleRecords
 import com.sleepreaper.kkaeurang.ui.model.AccrualState
+import com.sleepreaper.kkaeurang.ui.model.AlertCounts
+import com.sleepreaper.kkaeurang.ui.model.SleepRange
 import com.sleepreaper.kkaeurang.ui.model.DrowsinessUiState
 import com.sleepreaper.kkaeurang.ui.model.DrowsyLevel
 import com.sleepreaper.kkaeurang.ui.model.DrowsyThresholds
 import com.sleepreaper.kkaeurang.ui.model.LifetimeStats
 import com.sleepreaper.kkaeurang.ui.model.ScoreChange
+import com.sleepreaper.kkaeurang.ui.model.StartCheckIn
+import com.sleepreaper.kkaeurang.ui.model.TripLogEntry
+import com.sleepreaper.kkaeurang.ui.model.TripLogKind
 import com.sleepreaper.kkaeurang.ui.model.TripReport
 import com.sleepreaper.kkaeurang.ui.model.VehicleControlEvent
 import com.sleepreaper.kkaeurang.ui.model.VoiceState
+import com.sleepreaper.kkaeurang.ui.state.AlertDismissal
 import com.sleepreaper.kkaeurang.ui.state.KkaeuActions
 import com.sleepreaper.kkaeurang.ui.state.KkaeuStateSource
+import com.sleepreaper.kkaeurang.ui.state.RecordsRepository
 import com.sleepreaper.kkaeurang.voice.VoiceModule
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -68,9 +76,11 @@ class KkaeuLiveSource(
     private val voiceModule: VoiceModule,
     private val scope: CoroutineScope,
     signalSource: SignalSource = VehicleSignalCollector(context),
-    /** 창문·찬바람 제어. null이면 창문을 열 수 없어 엔진이 음성으로 대체 안내한다 */
+    /** 창문·찬바람 제어. null이면 창문을 열 수 없다 (화면에 창문 닫힘) */
     private val cabin: CabinControl? = null,
     private val navi: NaviModule = NoOpNaviModule(),
+    /** 주행 로그·혜택 탭 데이터. 지금은 임시 값 */
+    private val records: RecordsRepository = SampleRecords,
 ) : KkaeuStateSource, KkaeuActions, LiveDebugControls {
 
     private val appContext = context.applicationContext
@@ -108,6 +118,8 @@ class KkaeuLiveSource(
             warningSoundOn = prefs.getBoolean(KEY_WARNING_SOUND, true),
             isParked = true,
             lifetime = lifetimeStats(),
+            driveLog = records.driveLog(),
+            benefits = records.benefits(),
         )
     )
     override val state: StateFlow<DrowsinessUiState> = _state.asStateFlow()
@@ -134,6 +146,20 @@ class KkaeuLiveSource(
     private var eventCount = 0
     private var restCount = 0
     private val responseTimesMs = mutableListOf<Long>()
+    private var tripStartMs: Long? = null
+    private var tripDistanceKm = 0f
+    private var tripScoreSum = 0f                // 안전 점수 × 초
+    private var tripScoreSec = 0f
+    private var alertCounts = AlertCounts()
+    /** 이번 주행 상세 로그 (엔진 사건 + 창문·찬바람 + 시작·종료). 주행 리포트에 넣는다 */
+    private val tripLogs = ArrayList<TripLogEntry>()
+
+    /** 운전자가 "괜찮다"고 해서 경보 화면을 닫은 상태 */
+    private val alertDismissal = AlertDismissal()
+
+    // ── 출발 전 컨디션 질문 (앱 시작 때 한 번) ──
+    private var checkInJob: Job? = null
+    private var checkInAsking = false           // 컨디션 질문의 음성(묻기·듣기)이 진행 중
 
     private var resumedUntilMs = 0L
     private var lastHistoryMs: Long? = null     // 안전 점수 기록(그래프)에 마지막으로 점을 찍은 시각
@@ -161,11 +187,14 @@ class KkaeuLiveSource(
             scope.launch { checker.result.collect { onEngineTick(it, checker.sample.value) } },
             scope.launch { checker.logs.collect { onEngineLogs(it) } },
         )
+        beginStartCheckIn()
     }
 
     fun stop() {
         collectJobs.forEach { it.cancel() }
         collectJobs = emptyList()
+        checkInJob?.cancel()
+        checkInAsking = false
         if (started) {
             checker.stop()
             // 감시를 끝낼 때 우리가 연 창문·켠 찬바람은 원래대로 되돌린다
@@ -187,13 +216,16 @@ class KkaeuLiveSource(
         val prev = _state.value
 
         // P단 진입 → 주행 리포트, P단 해제 → 새 주행 시작
-        if (parked && !prev.isParked) onParked()
-        if (!parked && prev.isParked) onDriveStarted()
+        if (parked && !prev.isParked) onParked(now)
+        if (!parked && prev.isParked) onDriveStarted(now)
         onCabinTick(result, sample, now)
 
         driveStartMs = if (parked) null else (driveStartMs ?: now)
         if (!parked) tripDriveMs += dt
         if (level > maxLevel && !parked) maxLevel = level
+        if (!parked && level > prev.level) alertCounts = alertCounts.plus(level)
+        // 운전자가 닫은 경보 화면: 단계가 더 오르거나 점수가 크게 나빠지면 다시 띄운다
+        val dismissed = alertDismissal.update(level, result.score.toFloat())
 
         val accrual = nextAccrualState(prev.accrualState, prev.level, level, now)
         val accruing = !parked && level == DrowsyLevel.NORMAL &&
@@ -209,6 +241,11 @@ class KkaeuLiveSource(
         }
         if (!parked) accumulateLifetime(dt, sample.speedKmh, safety, now)
         if (parked && !prev.isParked) saveLifetime(now)
+        if (!parked && dt > 0L) {
+            tripDistanceKm += sample.speedKmh.coerceAtLeast(0f) * dt / 3_600_000f
+            tripScoreSum += safety * dt / 1000f
+            tripScoreSec += dt / 1000f
+        }
 
         val tripPoints = (awakeMs / POINT_EVERY_MS).toInt()
         val totalPoints = pointsAtTripStart + tripPoints
@@ -231,6 +268,11 @@ class KkaeuLiveSource(
                 isParked = parked,
                 safetyHistory = history,
                 lifetime = lifetimeStats(),
+                tripDistanceKm = tripDistanceKm,
+                alertDismissed = dismissed,
+                // 위험 화면에만 보이는 안내 문장. 위험 단계를 벗어나면 지워 다음 위험 때 지난 문장이 보이지 않게 한다
+                voiceGuide = if (level == DrowsyLevel.CRITICAL) it.voiceGuide else null,
+                restGuideOk = if (level == DrowsyLevel.CRITICAL) it.restGuideOk else null,
             )
         }
 
@@ -289,15 +331,18 @@ class KkaeuLiveSource(
         else -> AccrualState.ACCRUING
     }
 
-    /** 연속 주행·위험 시간대는 화면에 칩/배지로 따로 보이므로 근거 목록에서는 뺀다. 최신 근거가 위로 */
+    /** 연속 주행·위험 시간대·출발 전 컨디션은 화면에 따로 보이므로 근거 목록에서는 뺀다. 최신 근거가 위로 */
     private fun eventReasons(reasons: List<String>) =
-        reasons.filterNot { it.startsWith(REASON_LONG_DRIVE) || it == REASON_RISKY_HOUR }.reversed()
+        reasons.filterNot {
+            it.startsWith(REASON_LONG_DRIVE) || it == REASON_RISKY_HOUR || it.startsWith(REASON_CONDITION)
+        }.reversed()
 
     /** 엔진 사건 로그에서 "○○ (+N점)" 줄을 찾아 "마지막 점수 로그"와 리포트 이벤트 수에 반영 */
     private fun onEngineLogs(logs: List<LogEntry>) {
         val from = lastLogSeen?.let { seen -> logs.lastIndexOf(seen) + 1 } ?: 0
         lastLogSeen = logs.lastOrNull()
         for (entry in logs.drop(from)) {
+            addTripLog(TripLogMapper.fromEngine(entry))
             val m = SCORE_LOG.matchEntire(entry.message) ?: continue
             if (!entry.message.startsWith(DEBUG_LOG_PREFIX)) eventCount++
             _state.update { it.copy(lastScoreChange = ScoreChange(m.groupValues[1], m.groupValues[2].toInt())) }
@@ -308,6 +353,7 @@ class KkaeuLiveSource(
 
     /** 창문·찬바람 사건을 디버그 패널 사건 로그에 남긴다 (Logcat은 CabinActuator가 이미 남긴다) */
     private fun noteCabin(time: Long, message: String) {
+        addTripLog(TripLogEntry(time, TripLogKind.VEHICLE, message))
         cabinLogs.addLast(LogEntry(time, message))
         while (cabinLogs.size > DEBUG_LOG_LINES) cabinLogs.removeFirst()
         refreshDebugLogs()
@@ -321,9 +367,18 @@ class KkaeuLiveSource(
         }
     }
 
-    private fun onParked() {
+    /** 이번 주행 중일 때만 상세 로그에 남긴다 (최근 [MAX_TRIP_LOGS]줄) */
+    private fun addTripLog(entry: TripLogEntry) {
+        if (tripStartMs == null) return
+        tripLogs += entry
+        if (tripLogs.size > MAX_TRIP_LOGS) tripLogs.subList(0, tripLogs.size - MAX_TRIP_LOGS).clear()
+    }
+
+    private fun onParked(now: Long) {
         // 잠깐 P단을 거친 것(1분 미만 주행)은 리포트를 띄우지 않는다
         if (tripDriveMs < 60_000) return
+        addTripLog(TripLogEntry(now, TripLogKind.END, appContext.getString(R.string.trip_log_end)))
+        val s = _state.value
         val report = TripReport(
             driveMinutes = (tripDriveMs / 60_000).toInt(),
             awakeMinutes = (awakeMs / 60_000).toInt(),
@@ -332,12 +387,30 @@ class KkaeuLiveSource(
             maxLevel = maxLevel,
             eventCount = eventCount,
             restCount = restCount,
+            startedAtMs = tripStartMs,
+            endedAtMs = now,
+            distanceKm = tripDistanceKm,
+            averageSafety = if (tripScoreSec >= 1f) (tripScoreSum / tripScoreSec).roundToInt() else null,
+            startSafety = s.sleepRange?.startSafety ?: 100,
+            safetyHistory = s.safetyHistory,
+            alertCounts = alertCounts,
+            logs = tripLogs.toList(),
         )
-        Log.d(TAG, "주행 종료 → 리포트 $report")
-        _state.update { it.copy(tripReport = report, vehicleEvent = null, restStop = null) }
+        tripStartMs = null
+        // 닫아 둔 경보 화면은 그대로 둔다 (P단 3초 뒤 엔진이 경고를 풀 때까지 경보 화면이 다시 뜨지 않게)
+        Log.d(TAG, "주행 종료 → 리포트 (${report.driveMinutes}분, ${report.logs.size}줄)")
+        _state.update {
+            it.copy(
+                tripReport = report,
+                vehicleEvent = null,
+                restStop = null,
+                // TODO(integration): 주행 기록 저장소가 생기면 이번 주행을 저장한 뒤 다시 읽는다
+                driveLog = records.driveLog(),
+            )
+        }
     }
 
-    private fun onDriveStarted() {
+    private fun onDriveStarted(now: Long) {
         pointsAtTripStart = _state.value.totalPoints
         tripDriveMs = 0L
         awakeMs = 0L
@@ -346,7 +419,142 @@ class KkaeuLiveSource(
         restCount = 0
         responseTimesMs.clear()
         lastHistoryMs = null
-        _state.update { it.copy(tripReport = null, lastScoreChange = null, safetyHistory = emptyList()) }
+        tripStartMs = now
+        tripDistanceKm = 0f
+        tripScoreSum = 0f
+        tripScoreSec = 0f
+        alertCounts = AlertCounts()
+        tripLogs.clear()
+        addTripLog(TripLogEntry(now, TripLogKind.START, appContext.getString(R.string.trip_log_start)))
+        _state.value.sleepRange?.let { range ->
+            addTripLog(
+                TripLogEntry(
+                    now, TripLogKind.CONDITION,
+                    appContext.getString(R.string.trip_log_condition, awakeLabel(range), range.startSafety),
+                )
+            )
+        }
+        _state.update {
+            it.copy(tripReport = null, lastScoreChange = null, safetyHistory = emptyList(), tripDistanceKm = 0f)
+        }
+    }
+
+    // ───────────────────────── 출발 전 컨디션 질문 ─────────────────────────
+
+    /** 앱을 시작하면 "마지막으로 몇 시간 주무셨어요?"를 묻는다. 화면은 바로 띄우고, TTS가 준비되도록 잠깐 뒤에 말한다 */
+    private fun beginStartCheckIn() {
+        val question = appContext.getString(R.string.checkin_question)
+        _state.update { it.copy(startCheckIn = StartCheckIn(VoiceState.ASKING, question)) }
+        checkInJob?.cancel()
+        checkInJob = scope.launch {
+            delay(CHECKIN_FIRST_ASK_DELAY_MS)
+            askCheckIn(question)
+        }
+    }
+
+    private fun askCheckIn(question: String) {
+        if (_state.value.startCheckIn == null) return
+        if (driverVoice.isAsking || manualAsking || voiceModule.isAlarmRunning) {
+            // 졸음 질문·경고가 먼저다. 컨디션은 화면 버튼으로만 받는다
+            updateCheckIn { it.copy(voiceState = VoiceState.IDLE) }
+            startCheckInCountdown()
+            return
+        }
+        checkInAsking = true
+        updateCheckIn { it.copy(voiceState = VoiceState.ASKING, heardText = null, heardRange = null, autoStartSec = null) }
+        voiceModule.askAndListen(
+            question,
+            onListening = { if (checkInAsking) updateCheckIn { it.copy(voiceState = VoiceState.LISTENING) } },
+        ) { r ->
+            if (!checkInAsking) return@askAndListen
+            checkInAsking = false
+            val range = SleepAnswerParser.parse(r.text)
+            Log.d(TAG, "출발 전 컨디션 대답: \"${r.text}\" → $range")
+            if (range != null) {
+                updateCheckIn { it.copy(voiceState = VoiceState.RESULT, heardText = r.text, heardRange = range) }
+                checkInJob?.cancel()
+                checkInJob = scope.launch {
+                    delay(CHECKIN_RESULT_SHOW_MS)
+                    finishCheckIn(range)
+                }
+            } else {
+                val shown = if (r.text == null && r.isTimeout) VoiceState.NO_RESPONSE else VoiceState.FAILED
+                updateCheckIn { it.copy(voiceState = shown, heardText = r.text) }
+                startCheckInCountdown()
+            }
+        }
+    }
+
+    /** 대답이 없거나 못 알아들으면 잠깐 버튼을 기다렸다가 100점으로 시작한다 */
+    private fun startCheckInCountdown() {
+        checkInJob?.cancel()
+        checkInJob = scope.launch {
+            for (sec in CHECKIN_AUTO_START_SEC downTo 1) {
+                updateCheckIn { it.copy(autoStartSec = sec) }
+                delay(1_000)
+            }
+            finishCheckIn(null)
+        }
+    }
+
+    /** 졸음 질문·경고가 컨디션 질문 음성을 끊을 때. 화면 버튼은 그대로 두고 잠시 뒤 100점으로 시작한다 */
+    private fun interruptCheckInVoice() {
+        if (!checkInAsking) return
+        checkInAsking = false
+        Log.d(TAG, "졸음 질문·경고 시작 → 출발 전 컨디션 음성 질문 중단")
+        updateCheckIn { it.copy(voiceState = VoiceState.IDLE) }
+        startCheckInCountdown()
+    }
+
+    private fun updateCheckIn(transform: (StartCheckIn) -> StartCheckIn) {
+        _state.update { s -> s.startCheckIn?.let { s.copy(startCheckIn = transform(it)) } ?: s }
+    }
+
+    /** 컨디션 질문을 마치고 오늘의 시작 점수를 엔진에 넘긴다. [range]가 null이면 100점에서 시작 */
+    private fun finishCheckIn(range: SleepRange?) {
+        if (_state.value.startCheckIn == null) return
+        checkInJob?.cancel()
+        checkInJob = null
+        if (checkInAsking) {
+            checkInAsking = false
+            voiceModule.stopAll()
+        }
+        val startSafety = range?.startSafety ?: 100
+        checker.setConditionRisk(
+            points = 100 - startSafety,
+            reason = range?.let { appContext.getString(R.string.checkin_reason, awakeLabel(it)) }
+                ?: appContext.getString(R.string.checkin_reason_none),
+        )
+        Log.d(TAG, "출발 전 컨디션 → 오늘의 시작 점수 $startSafety ($range)")
+        _state.update { it.copy(startCheckIn = null, sleepRange = range) }
+    }
+
+    private fun awakeLabel(range: SleepRange) = appContext.getString(
+        when (range) {
+            SleepRange.UNDER_4H -> R.string.sleep_under_4h
+            SleepRange.H4_TO_6 -> R.string.sleep_4_to_6h
+            SleepRange.H6_TO_8 -> R.string.sleep_6_to_8h
+            SleepRange.OVER_8H -> R.string.sleep_over_8h
+        }
+    )
+
+    override fun onStartCheckInAnswer(range: SleepRange) {
+        Log.d(TAG, "출발 전 컨디션: 버튼으로 대답 $range")
+        finishCheckIn(range)
+    }
+
+    override fun onStartCheckInSkip() {
+        Log.d(TAG, "출발 전 컨디션: 건너뛰기 → 100점에서 시작")
+        finishCheckIn(null)
+    }
+
+    /** 운전자가 졸리지 않다고 알림 (괜찮다는 대답·화면 버튼) → 경보 화면을 닫고 홈 계기판으로 */
+    private fun dismissAlert(why: String) {
+        val s = _state.value
+        if (s.level == DrowsyLevel.NORMAL) return
+        Log.d(TAG, "$why → 경보 화면 닫고 홈 계기판으로 (${s.level})")
+        alertDismissal.dismiss(s.level, s.score)
+        _state.update { it.copy(alertDismissed = true) }
     }
 
     // ───────────────────────── 엔진이 부르는 모듈 (UI 상태도 함께 갱신) ─────────────────────────
@@ -361,10 +569,15 @@ class KkaeuLiveSource(
 
         override fun ask(question: String, onResult: (VoiceAnswer) -> Unit) {
             manualAsking = false   // 엔진 질문이 "음성으로 답하기"를 덮어쓴다 (그쪽 콜백은 오지 않음)
+            interruptCheckInVoice()
             pending = onResult
             resetJob?.cancel()
             listeningAt = 0L
-            _state.update { it.copy(voiceState = VoiceState.ASKING, voiceQuestion = question, recognizedText = null) }
+            // 새 질문은 경보 화면에서 보여야 하므로 닫아 둔 경보 화면을 다시 연다
+            alertDismissal.clear()
+            _state.update {
+                it.copy(voiceState = VoiceState.ASKING, voiceQuestion = question, recognizedText = null, alertDismissed = false)
+            }
 
             voiceModule.askAndListen(
                 question,
@@ -386,8 +599,11 @@ class KkaeuLiveSource(
             showThenIdle(null)
         }
 
-        /** 엔진의 안내 문구(위험 단계, 정차 해제, 창문·내비 실패 대체). 듣지 않고 말만 한다 */
-        override fun say(text: String) = voiceModule.speak(text)
+        /** 엔진의 안내 문구(위험 단계, 정차 해제, 창문·내비 실패 대체). 듣지 않고 말만 한다. 위험 화면에 한 줄로 보이도록 남긴다 */
+        override fun say(text: String) {
+            voiceModule.speak(text)
+            _state.update { it.copy(voiceGuide = text) }
+        }
 
         /**
          * 음성 대신 들어온 대답(화면 "괜찮아요" 버튼, 디버그 패널): 진행 중인 질문을 끊고 [answer]로 엔진에 넘긴다.
@@ -431,6 +647,7 @@ class KkaeuLiveSource(
                 },
                 shownText,
             )
+            if (response == DriverResponse.OK) dismissAlert("괜찮다는 대답")
             // UI를 먼저 바꾼 뒤 엔진에 넘긴다 (엔진이 곧바로 재질문하면 ASKING으로 다시 바뀐다)
             callback(answer)
         }
@@ -454,6 +671,7 @@ class KkaeuLiveSource(
     private inner class LiveAlarm : AlarmModule {
         override fun start() {
             driverVoice.cancelForAlarm()
+            interruptCheckInVoice()
             voiceModule.startAlarm { reason ->
                 Log.d(TAG, "음성 경고 종료: $reason")
                 _state.update {
@@ -473,9 +691,9 @@ class KkaeuLiveSource(
 
     /**
      * 엔진이 DANGER 진입 때 부르는 창문 열기.
-     * - [cabin]이 없으면 실제로 열 수 없으므로 실패로 알려, 엔진이 "창문을 직접 열어 주세요" 음성 안내를 하게 한다.
+     * - [cabin]이 없으면 실제로 열 수 없으므로 실패로 알린다 (엔진은 로그만 남긴다).
      * - [cabin]이 있으면 실제 열고 닫기는 매초 도는 [onCabinTick]이 점수를 보고 한다. 여기서는 받아들였다고만 알리고,
-     *   진짜 실패는 [onCabinEvent]가 음성으로 대체 안내한다.
+     *   진짜 실패는 [onCabinEvent]가 화면 창문 상태를 닫힘으로 되돌린다.
      */
     private inner class LiveWindow : WindowModule {
         override fun open() = open { }
@@ -535,9 +753,9 @@ class KkaeuLiveSource(
         when (event) {
             CabinActuator.Event.WINDOW_FAILED -> {
                 windowFailed = true
-                Log.w(CABIN_TAG, "창문 제어 실패 → 음성 대체 안내")
-                noteCabin(now(), "창문 제어 실패 → 음성 안내로 대체")
-                driverVoice.say(appContext.getString(R.string.live_window_failed_voice))
+                // 위험 단계 음성은 졸음쉼터 안내 결과만 말하므로 창문 실패는 말하지 않는다 (화면 창문 패널이 닫힘으로 보여 준다)
+                Log.w(CABIN_TAG, "창문 제어 실패 → 화면에 창문 닫힘")
+                noteCabin(now(), "창문 제어 실패")
                 // 실제 차에서는 실패가 늦게 올 수 있으므로, 이미 띄운 "창문을 열었어요"를 거둔다
                 vehicleEventUntilMs = 0L
                 _state.update { it.copy(windowOpen = false, vehicleEvent = null) }
@@ -564,7 +782,11 @@ class KkaeuLiveSource(
     private inner class LiveNavi : NaviModule {
         override fun guideToRestArea() = navi.guideToRestArea()
 
-        override fun guideToRestArea(onResult: (Boolean) -> Unit) = navi.guideToRestArea(onResult)
+        /** 결과를 화면(위험 화면 경로 문구)에도 남긴 뒤 엔진에 넘긴다 (엔진이 결과에 맞는 안내 문장을 말한다) */
+        override fun guideToRestArea(onResult: (Boolean) -> Unit) = navi.guideToRestArea { ok ->
+            _state.update { it.copy(restGuideOk = ok) }
+            onResult(ok)
+        }
     }
 
     // ───────────────────────── KkaeuActions (화면 → 모듈) ─────────────────────────
@@ -572,13 +794,21 @@ class KkaeuLiveSource(
     override fun onAnswerOkay() {
         val text = appContext.getString(R.string.btn_okay)
         if (driverVoice.answerInstead(VoiceAnswer(text = text, isTimeout = false, speechStartTimeMs = null))) {
-            Log.d(TAG, "괜찮아요 버튼 → 진행 중인 질문에 '괜찮음'으로 응답")
+            Log.d(TAG, "괜찮아요 버튼 → 진행 중인 질문에 '괜찮음'으로 응답")   // deliver가 경보 화면을 닫는다
+            return
+        }
+        if (manualAsking) {
+            // "음성으로 답하기" 질문 중에 눌렀으면 그 질문을 끊는다 (콜백은 오지 않는다)
+            manualAsking = false
+            voiceModule.stopAll()
+            driverVoice.showThenIdle(VoiceState.RESULT, text)
         } else if (voiceModule.isAlarmRunning) {
             // 질문 중이 아닐 때(경고 중) 누르면 운전자가 경고를 확인한 것으로 보고 경고음만 끈다.
             // 점수·단계는 엔진이 정하므로 건드리지 않는다
             Log.d(TAG, "괜찮아요 버튼 → 음성 경고 중지")
             voiceModule.stopAlarm()
         }
+        dismissAlert("괜찮아요 버튼")
     }
 
     override fun onAddRestStopWaypoint() {
@@ -648,9 +878,10 @@ class KkaeuLiveSource(
                 },
                 r.text,
             )
-            // 괜찮다고 하면 경고음을 끈 채로 둔다. 아니면(졸림·무응답·불명확) 아직 경고 단계일 때 다시 울린다
+            // 괜찮다고 하면 경고음을 끈 채로 두고 홈 계기판으로 돌아간다. 아니면(졸림·무응답·불명확) 아직 경고 단계일 때 다시 울린다
             // TODO(integration): 판단 엔진에 이 대답을 넘기는 공개 함수가 생기면 연결 (지금은 경고음만 다룬다)
-            if (response != DriverResponse.OK && _state.value.level >= DrowsyLevel.WARNING) alarm.start()
+            if (response == DriverResponse.OK) dismissAlert("음성으로 답하기: 괜찮음")
+            else if (_state.value.level >= DrowsyLevel.WARNING) alarm.start()
         }
     }
 
@@ -756,6 +987,13 @@ class KkaeuLiveSource(
         // DrowsinessChecker가 만드는 문장 형식 (엔진 문구가 바뀌면 여기도 맞춘다)
         const val REASON_LONG_DRIVE = "연속 주행"
         const val REASON_RISKY_HOUR = "졸음 위험 시간대"
+        const val REASON_CONDITION = "출발 전 컨디션"
+
+        // 출발 전 컨디션 질문
+        const val CHECKIN_FIRST_ASK_DELAY_MS = 1_500L   // 앱 시작 직후 TTS가 준비될 시간
+        const val CHECKIN_RESULT_SHOW_MS = 1_500L       // 알아들은 구간을 보여 주는 시간
+        const val CHECKIN_AUTO_START_SEC = 10           // 대답이 없으면 이만큼 기다렸다가 100점으로 시작
+        const val MAX_TRIP_LOGS = 300
         val SCORE_LOG = Regex("""^(.+) \(([+-]\d+)점\)$""")
         const val DEBUG_LOG_PREFIX = "디버그 "   // DrowsinessChecker.debugAdjustEventScore 로그
 

@@ -60,7 +60,7 @@ private val CAR_PERMISSIONS = arrayOf(
     "android.car.permission.CAR_POWERTRAIN",
     "pleos.car.permission.CAR_DRIVE",
     "pleos.car.permission.CAR_LIGHTS",
-    // 창문 열기·찬바람. 거부되면 창문을 열지 못하고 엔진이 음성으로 대체 안내한다
+    // 창문 열기·찬바람. 거부되면 창문을 열지 못하고 화면에 창문 닫힘으로 보인다
     "pleos.car.permission.CAR_WINDOWS",
     "pleos.car.permission.CONTROL_CAR_WINDOWS",
     "pleos.car.permission.CAR_CLIMATE",

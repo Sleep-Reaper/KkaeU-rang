@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,12 +41,17 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.BaselineShift
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.sp
 import com.sleepreaper.kkaeurang.R
-import com.sleepreaper.kkaeurang.ui.model.LifetimeStats
+import com.sleepreaper.kkaeurang.ui.model.SleepRange
+import com.sleepreaper.kkaeurang.ui.model.DrowsyLevel
+import com.sleepreaper.kkaeurang.ui.model.DrowsyThresholds
 import com.sleepreaper.kkaeurang.ui.model.RestStopInfo
 import com.sleepreaper.kkaeurang.ui.model.SleepCondition
 import com.sleepreaper.kkaeurang.ui.theme.KkaeuColors
@@ -61,9 +68,17 @@ private const val CARD_RADIUS = 26
 
 // ───────────────────────── 오른쪽 위: 현재 컨디션 ─────────────────────────
 
-/** "현재 컨디션 / 기상 후 3시간 경과 / 수면 7시간 20분 · 10/12 01:30" */
+/**
+ * "현재 컨디션 / 기상 후 3시간 경과 / 수면 7시간 20분 · 10/12 01:30".
+ * 수면 기록이 없으면 출발 전 컨디션 대답([sleepRange])으로 "수면 6~8시간 / 오늘의 시작 점수 95점"
+ */
 @Composable
-fun ConditionCard(sleep: SleepCondition?, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun ConditionCard(
+    sleep: SleepCondition?,
+    sleepRange: SleepRange?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val d = LocalDesign.current
     Row(
         modifier = modifier
@@ -88,6 +103,17 @@ fun ConditionCard(sleep: SleepCondition?, onClick: () -> Unit, modifier: Modifie
                     style = d.text(19, W.Medium, KkaeuColors.CardTextSub),
                     maxLines = 1,
                 )
+            } else if (sleepRange != null) {
+                Text(
+                    stringResource(R.string.condition_checkin_title, sleepRangeLabel(sleepRange)),
+                    style = d.text(31, W.ExtraBold, KkaeuColors.CardText),
+                    maxLines = 1,
+                )
+                Text(
+                    stringResource(R.string.condition_checkin_sub, sleepRange.startSafety),
+                    style = d.text(19, W.Medium, KkaeuColors.CardTextSub),
+                    maxLines = 1,
+                )
             } else {
                 Text(stringResource(R.string.condition_empty_title), style = d.text(31, W.ExtraBold, KkaeuColors.CardText), maxLines = 1)
                 Text(stringResource(R.string.condition_empty_sub), style = d.text(19, W.Medium, KkaeuColors.CardTextSub), maxLines = 1)
@@ -98,6 +124,17 @@ fun ConditionCard(sleep: SleepCondition?, onClick: () -> Unit, modifier: Modifie
 }
 
 private val SLEEP_TIME_FORMAT = SimpleDateFormat("M/d HH:mm", Locale.KOREA)
+
+/** "4시간 미만" · "4~6시간" · "6~8시간" · "8시간 이상" */
+@Composable
+fun sleepRangeLabel(range: SleepRange): String = stringResource(
+    when (range) {
+        SleepRange.UNDER_4H -> R.string.sleep_under_4h
+        SleepRange.H4_TO_6 -> R.string.sleep_4_to_6h
+        SleepRange.H6_TO_8 -> R.string.sleep_6_to_8h
+        SleepRange.OVER_8H -> R.string.sleep_over_8h
+    }
+)
 
 /** 파란 침대 + zZ */
 @Composable
@@ -230,9 +267,9 @@ fun ScoreLogCard(history: List<Int>, onMore: () -> Unit, modifier: Modifier = Mo
     }
 }
 
-/** 보라 꺾은선 + 아래 그라데이션 + 점선 + 최고점 말풍선 */
+/** 보라 꺾은선 + 아래 그라데이션 + 점선 + 최고점 말풍선 (홈 점수 로그·주행 리포트 점수 흐름) */
 @Composable
-private fun ScoreChart(points: List<Int>, modifier: Modifier = Modifier) {
+internal fun ScoreChart(points: List<Int>, modifier: Modifier = Modifier) {
     val d = LocalDesign.current
     val maxIndex = points.indices.maxBy { points[it] }
     BoxWithConstraints(modifier) {
@@ -358,11 +395,25 @@ fun PointsCard(totalPoints: Int, onPreviewBenefits: () -> Unit, modifier: Modifi
     }
 }
 
-// ───────────────────────── 아래: 나의 주행 로그 ─────────────────────────
+// ───────────────────────── 아래: 현재 주행 로그 ─────────────────────────
 
+/**
+ * 이번 주행 기록: "현재 주행 로그 | 주행 시간 | 주행 거리 | 현재 등급 | 이번 주행 포인트".
+ * 시간·거리·포인트는 모두 이번 주행 값이라 다음 출발 때 함께 0이 된다 (정차 중에는 방금 마친 주행 값).
+ * 연속 주행이 2시간을 넘으면([continuousDriveMinutes]) "쉬어 가세요"로 알려 준다.
+ */
 @Composable
-fun LifetimeStatsCard(stats: LifetimeStats, modifier: Modifier = Modifier) {
+fun CurrentTripCard(
+    driveMinutes: Int,
+    continuousDriveMinutes: Int,
+    distanceKm: Float,
+    level: DrowsyLevel,
+    tripPoints: Int,
+    isParked: Boolean,
+    modifier: Modifier = Modifier,
+) {
     val d = LocalDesign.current
+    val longDrive = continuousDriveMinutes >= DrowsyThresholds.LONG_DRIVE_MIN
     Row(
         modifier = modifier.lavenderCard(d.dp(CARD_RADIUS)),
         verticalAlignment = Alignment.CenterVertically,
@@ -370,47 +421,110 @@ fun LifetimeStatsCard(stats: LifetimeStats, modifier: Modifier = Modifier) {
         Row(
             modifier = Modifier
                 .weight(1f)
-                .padding(start = d.dp(44)),
+                .padding(start = d.dp(34)),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(d.dp(22)),
+            horizontalArrangement = Arrangement.spacedBy(d.dp(14)),
         ) {
-            KIcon(R.drawable.ic_k_clock_outline, d.dp(46), Color(0xFF2E3170))
-            Text(stringResource(R.string.stats_title), style = d.text(28, W.ExtraBold, KkaeuColors.CardText))
+            KIcon(R.drawable.ic_k_clock_outline, d.dp(44), Color(0xFF2E3170))
+            Column(verticalArrangement = Arrangement.spacedBy(d.dp(2))) {
+                Text(stringResource(R.string.trip_card_title), style = d.text(26, W.ExtraBold, KkaeuColors.CardText), maxLines = 1)
+                Text(
+                    stringResource(if (isParked) R.string.header_parked else R.string.trip_card_driving),
+                    style = d.text(18, W.SemiBold, KkaeuColors.CardTextSub),
+                )
+            }
         }
         StatDivider()
-        StatCell(
-            icon = R.drawable.ic_k_car,
-            value = buildAnnotatedString { append(stringResource(R.string.stats_hours, stats.totalDriveMinutes / 60)) },
-            label = stringResource(R.string.stats_total_time),
+        TripStatCell(
+            icon = { KIcon(R.drawable.ic_k_car, d.dp(40), Color(0xFF2E3170)) },
+            value = AnnotatedString(durationText(driveMinutes)),
+            label = stringResource(if (longDrive) R.string.trip_card_time_long else R.string.trip_card_time),
+            labelColor = if (longDrive) LONG_DRIVE_TEXT else KkaeuColors.CardTextSub,
             modifier = Modifier.weight(1f),
         )
         StatDivider()
-        StatCell(
-            icon = R.drawable.ic_k_road,
+        TripStatCell(
+            icon = { KIcon(R.drawable.ic_k_road, d.dp(40), Color(0xFF2E3170)) },
             value = buildAnnotatedString {
-                append(stringResource(R.string.stats_km_value, stats.totalDistanceKm.roundToInt()))
+                append(stringResource(R.string.trip_card_km_value, distanceKm))
                 withStyle(SpanStyle(fontSize = d.sp(21), fontWeight = W.SemiBold)) {
                     append(" ")
                     append(stringResource(R.string.stats_km_unit))
                 }
             },
-            label = stringResource(R.string.stats_total_distance),
+            label = stringResource(R.string.trip_card_distance),
             modifier = Modifier.weight(1f),
         )
         StatDivider()
-        StatCell(
-            icon = R.drawable.ic_k_star,
+        TripStatCell(
+            icon = { LevelIcon(level, Modifier.size(d.dp(38)), mark = if (level == DrowsyLevel.NORMAL) Color.White else KkaeuColors.OnLight) },
             value = buildAnnotatedString {
-                withStyle(SpanStyle(fontSize = d.sp(24), fontWeight = W.Bold)) {
-                    append(stringResource(R.string.stats_avg_prefix))
+                append(stringResource(level.labelRes()))
+                withStyle(SpanStyle(fontSize = d.sp(21), fontWeight = W.SemiBold, color = KkaeuColors.CardTextSub)) {
                     append(" ")
+                    append(stringResource(R.string.trip_card_lv, level.lvNumber()))
                 }
-                append(stats.averageSafetyScore?.toString() ?: stringResource(R.string.stats_no_value))
-                withStyle(SpanStyle(fontSize = d.sp(24), fontWeight = W.Bold)) { append(stringResource(R.string.stats_avg_suffix)) }
             },
-            label = stringResource(R.string.stats_average),
+            label = stringResource(R.string.trip_card_level),
             modifier = Modifier.weight(1f),
         )
+        StatDivider()
+        TripStatCell(
+            icon = { PointCoin(d.dp(38)) },
+            value = buildAnnotatedString {
+                append(stringResource(R.string.trip_card_points_value, tripPoints))
+                withStyle(SpanStyle(fontSize = d.sp(21), fontWeight = W.SemiBold)) {
+                    append(" ")
+                    append(stringResource(R.string.points_unit))
+                }
+            },
+            label = stringResource(R.string.trip_card_points),
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+/** 연보라 카드 위에서 읽히는 진한 주황 (장시간 주행 알림) */
+private val LONG_DRIVE_TEXT = Color(0xFFB4561C)
+
+/** 노란 "P" 동전 (포인트 아이콘) */
+@Composable
+fun PointCoin(size: Dp, modifier: Modifier = Modifier) {
+    val d = LocalDesign.current
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(Brush.radialGradient(listOf(Color(0xFFFFE27A), Color(0xFFF5B82E), Color(0xFFD9901A))))
+            .border(d.dp(2), Color(0xFFFFF1B8), CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = stringResource(R.string.points_unit),
+            style = TextStyle(fontSize = (size.value * 0.52f).sp, fontWeight = W.ExtraBold, color = Color(0xFF8A5200)),
+        )
+    }
+}
+
+@Composable
+private fun TripStatCell(
+    icon: @Composable () -> Unit,
+    value: AnnotatedString,
+    label: String,
+    modifier: Modifier = Modifier,
+    labelColor: Color = KkaeuColors.CardTextSub,
+) {
+    val d = LocalDesign.current
+    Column(
+        modifier = modifier.wrapContentSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(d.dp(6)),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(d.dp(14))) {
+            icon()
+            Text(value, style = d.text(31, W.ExtraBold, KkaeuColors.CardText, lineHeight = 1.1f), maxLines = 1)
+        }
+        Text(label, style = d.text(19, W.Medium, labelColor), maxLines = 1)
     }
 }
 
@@ -423,25 +537,4 @@ private fun StatDivider() {
             .height(d.dp(72))
             .background(KkaeuColors.CardDivider)
     )
-}
-
-@Composable
-private fun StatCell(
-    icon: Int,
-    value: AnnotatedString,
-    label: String,
-    modifier: Modifier = Modifier,
-) {
-    val d = LocalDesign.current
-    Column(
-        modifier = modifier.wrapContentSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(d.dp(6)),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(d.dp(18))) {
-            KIcon(icon, d.dp(40), Color(0xFF2E3170))
-            Text(value, style = d.text(31, W.ExtraBold, KkaeuColors.CardText, lineHeight = 1.1f), maxLines = 1)
-        }
-        Text(label, style = d.text(19, W.Medium, KkaeuColors.CardTextSub))
-    }
 }

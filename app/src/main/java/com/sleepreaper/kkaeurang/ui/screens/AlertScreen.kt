@@ -3,6 +3,8 @@ package com.sleepreaper.kkaeurang.ui.screens
 import androidx.annotation.StringRes
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -38,17 +40,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import com.sleepreaper.kkaeurang.R
 import com.sleepreaper.kkaeurang.ui.components.KIcon
 import com.sleepreaper.kkaeurang.ui.components.LevelIcon
 import com.sleepreaper.kkaeurang.ui.components.SoundArcs
-import com.sleepreaper.kkaeurang.ui.components.SoundBars
 import com.sleepreaper.kkaeurang.ui.components.SparkLines
 import com.sleepreaper.kkaeurang.ui.components.circleGlow
 import com.sleepreaper.kkaeurang.ui.components.clockText
@@ -67,9 +64,13 @@ import com.sleepreaper.kkaeurang.ui.theme.levelBadgeText
  * 홈 본문 자리를 통째로 바꾼다 (헤더·하단 탭은 그대로, 탭은 홈·설정만).
  * 단계가 바뀌면 즉시 바뀌고, 깜빡임·움직이는 효과는 쓰지 않는다 (주행 중).
  *
- * - 주의: 음성 질문 "괜찮으세요?" + 마이크 (듣는 중이면 소리 물결)
- * - 경고: "지금 바로 반응해 주세요!" + 음성으로 답하기 / 터치로 응답하기
- * - 위험: "창문을 열고 가까운 쉼터로 이동합니다" + 창문 상태 · 차량 · 쉼터 경로
+ * 깨우랑이 말하는(묻는) 문장은 단계마다 그림 없이 글자 한 줄로 보여 준다.
+ * 운전자가 졸리지 않다고 알리면(괜찮다는 대답, "괜찮아요"·"터치로 응답하기" 버튼) 공급자가
+ * alertDismissed를 켜고, 화면은 홈 계기판으로 돌아간다 ([isAlert]).
+ *
+ * - 주의: 질문 한 줄 + 마이크 (듣는 중이면 소리 물결) + 괜찮아요 버튼
+ * - 경고: "지금 바로 반응해 주세요!" (음성으로 답하기 중이면 묻는 문장) + 음성으로 답하기 / 터치로 응답하기
+ * - 위험: 깨우랑이 말한 안내 한 줄 + 창문 상태 · 차량 · 쉼터 경로 + 음성으로 답하기 / 괜찮아요
  */
 @Composable
 fun AlertScreen(
@@ -96,7 +97,7 @@ fun AlertScreen(
         when (state.level) {
             DrowsyLevel.NORMAL, DrowsyLevel.CAUTION -> CautionContent(state, onAnswerOkay)
             DrowsyLevel.WARNING -> WarningContent(state, onAnswerOkay, onVoiceAnswer)
-            DrowsyLevel.CRITICAL -> CriticalContent(state, onCancelVehicleControl)
+            DrowsyLevel.CRITICAL -> CriticalContent(state, onAnswerOkay, onVoiceAnswer, onCancelVehicleControl)
         }
     }
 }
@@ -145,32 +146,23 @@ private fun StageBadge(level: DrowsyLevel, modifier: Modifier = Modifier) {
     }
 }
 
-/** "주행이 평소와 조금 달라요. 괜찮으세요?" → 문장 단위로 두 줄 */
-private fun twoLines(text: String): String {
-    val t = text.trim()
-    val breaks = Regex("""[.?!]\s+""").findAll(t).map { it.range.last }.toList()
-    if (breaks.isEmpty()) return t
-    val mid = t.length / 2
-    val at = breaks.minBy { kotlin.math.abs(it - mid) }
-    return t.substring(0, at).trimEnd() + "\n" + t.substring(at + 1).trimStart()
+/**
+ * 깨우랑이 말하는(묻는) 문장을 글자 한 줄로. 화면보다 길면 한 줄에 들어갈 때까지 글자를 줄인다 ([minPx]까지).
+ */
+@Composable
+internal fun SpokenLine(text: String, sizePx: Int, modifier: Modifier = Modifier, minPx: Int = 30) {
+    val d = LocalDesign.current
+    BasicText(
+        text = text,
+        modifier = modifier,
+        style = d.text(sizePx, W.ExtraBold, KkaeuColors.TextPrimary, lineHeight = 1.2f).copy(textAlign = TextAlign.Center),
+        maxLines = 1,
+        softWrap = false,
+        autoSize = TextAutoSize.StepBased(minFontSize = d.sp(minPx), maxFontSize = d.sp(sizePx), stepSize = d.sp(2)),
+    )
 }
 
-private fun quoted(text: String) = "“$text”"
-
-/** "가까운 [쉼터]로 [이동]합니다" → [ ] 안 글자를 [color]로 */
-private fun highlightBrackets(text: String, color: Color): AnnotatedString = buildAnnotatedString {
-    var rest = text
-    while (rest.isNotEmpty()) {
-        val open = rest.indexOf('[')
-        val close = if (open >= 0) rest.indexOf(']', open) else -1
-        if (open < 0 || close < 0) {
-            append(rest); break
-        }
-        append(rest.substring(0, open))
-        withStyle(SpanStyle(color = color)) { append(rest.substring(open + 1, close)) }
-        rest = rest.substring(close + 1)
-    }
-}
+private val QUESTION_STATES = setOf(VoiceState.ASKING, VoiceState.LISTENING)
 
 // ───────────────────────── 주의 ─────────────────────────
 
@@ -178,20 +170,8 @@ private fun highlightBrackets(text: String, color: Color): AnnotatedString = bui
 private fun CautionContent(state: DrowsinessUiState, onAnswerOkay: () -> Unit) {
     val d = LocalDesign.current
     val voice = state.voiceState
+    // 주의 단계에서 깨우랑이 묻는 문장 (엔진 질문). 대답을 기다리는 동안에도 그대로 둔다
     val question = state.voiceQuestion ?: stringResource(R.string.voice_default_question)
-    val title: String
-    val showBars: Boolean
-    when (voice) {
-        VoiceState.ASKING, VoiceState.LISTENING, VoiceState.NO_RESPONSE, VoiceState.FAILED -> {
-            title = quoted(twoLines(question)); showBars = true
-        }
-        VoiceState.RESULT -> {
-            title = quoted(state.recognizedText.orEmpty()); showBars = true
-        }
-        VoiceState.IDLE, VoiceState.ALARM -> {
-            title = stringResource(R.string.caution_idle_title); showBars = false
-        }
-    }
     @StringRes val label = when (voice) {
         VoiceState.ASKING -> R.string.caution_asking
         VoiceState.LISTENING -> R.string.caution_listening
@@ -202,24 +182,17 @@ private fun CautionContent(state: DrowsinessUiState, onAnswerOkay: () -> Unit) {
     }
 
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-        Spacer(Modifier.height(d.dp(78)))
+        Spacer(Modifier.height(d.dp(70)))
         BadgeWithSparks(DrowsyLevel.CAUTION)
-        Spacer(Modifier.height(d.dp(28)))
-        Box(Modifier.height(d.dp(132)), contentAlignment = Alignment.Center) {
-            Row(verticalAlignment = Alignment.Top) {
-                if (showBars) {
-                    SoundBars(d.dp(52), Modifier.offset(y = d.dp(8)))
-                    Spacer(Modifier.width(d.dp(26)))
-                }
-                Text(
-                    text = title,
-                    style = d.text(54, W.ExtraBold, KkaeuColors.TextPrimary, lineHeight = 1.22f),
-                    maxLines = 2,
-                )
-                if (showBars) Spacer(Modifier.width(d.dp(78)))
-            }
-        }
-        Spacer(Modifier.height(d.dp(78)))
+        Spacer(Modifier.height(d.dp(30)))
+        SpokenLine(
+            text = question,
+            sizePx = 52,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = d.dp(60)),
+        )
+        Spacer(Modifier.height(d.dp(40)))
         MicWithWaves(
             listening = voice == VoiceState.LISTENING,
             dimmed = voice == VoiceState.IDLE || voice == VoiceState.ALARM || voice == VoiceState.RESULT,
@@ -228,11 +201,9 @@ private fun CautionContent(state: DrowsinessUiState, onAnswerOkay: () -> Unit) {
             text = stringResource(label),
             style = d.text(27, W.SemiBold, KkaeuColors.TextPrimary.copy(alpha = 0.9f)),
         )
-        // 음성으로 대답하지 못했을 때만 화면 버튼 (음성의 백업)
-        if (voice == VoiceState.NO_RESPONSE || voice == VoiceState.FAILED) {
-            Spacer(Modifier.height(d.dp(14)))
-            OkayPill(onAnswerOkay)
-        }
+        Spacer(Modifier.height(d.dp(18)))
+        // 말 대신 눌러서 "괜찮다"고 알릴 수 있다 → 홈 계기판으로
+        OkayPill(onAnswerOkay)
     }
 }
 
@@ -309,18 +280,17 @@ private fun WarningContent(state: DrowsinessUiState, onAnswerOkay: () -> Unit, o
     val voiceLabel = when (voice) {
         VoiceState.ASKING -> stringResource(R.string.caution_asking)
         VoiceState.LISTENING -> stringResource(R.string.caution_listening)
-        VoiceState.RESULT -> quoted(state.recognizedText.orEmpty())
+        VoiceState.RESULT -> stringResource(R.string.main_voice_quote, state.recognizedText.orEmpty())
         else -> stringResource(R.string.warning_voice)
     }
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(d.dp(78)))
         StageBadge(DrowsyLevel.WARNING)
         Spacer(Modifier.height(d.dp(34)))
-        Box {
-            Text(
-                text = stringResource(R.string.warning_title),
-                style = d.text(58, W.ExtraBold, KkaeuColors.TextPrimary, lineHeight = 1.2f),
-            )
+        // "음성으로 답하기" 중에는 깨우랑이 묻는 문장을, 아니면 경고 문구를 한 줄로
+        val title = state.voiceQuestion?.takeIf { voice in QUESTION_STATES } ?: stringResource(R.string.warning_title)
+        Box(Modifier.padding(horizontal = d.dp(90))) {
+            SpokenLine(text = title, sizePx = 58)
             SparkLines(
                 d.dp(58),
                 Modifier
@@ -412,11 +382,16 @@ private fun TouchCircle(diameter: Dp, onClick: () -> Unit) {
 // ───────────────────────── 위험 ─────────────────────────
 
 @Composable
-private fun CriticalContent(state: DrowsinessUiState, onCancelVehicleControl: () -> Unit) {
+private fun CriticalContent(
+    state: DrowsinessUiState,
+    onAnswerOkay: () -> Unit,
+    onVoiceAnswer: () -> Unit,
+    onCancelVehicleControl: () -> Unit,
+) {
     val d = LocalDesign.current
     val red = Color(0xFFFF4D5A)
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-        Spacer(Modifier.height(d.dp(10)))
+        Spacer(Modifier.height(d.dp(6)))
         Row(verticalAlignment = Alignment.CenterVertically) {
             SoundArcs(d.dp(78), d.dp(92), left = true, color = red, count = 3, glow = true)
             Spacer(Modifier.width(d.dp(22)))
@@ -424,17 +399,19 @@ private fun CriticalContent(state: DrowsinessUiState, onCancelVehicleControl: ()
             Spacer(Modifier.width(d.dp(22)))
             SoundArcs(d.dp(78), d.dp(92), left = false, color = red, count = 3, glow = true)
         }
-        Spacer(Modifier.height(d.dp(22)))
-        Text(
-            text = buildAnnotatedString {
-                append(stringResource(if (state.windowOpen) R.string.danger_title_window else R.string.danger_title_no_window))
-                append("\n")
-                append(highlightBrackets(stringResource(R.string.danger_title_rest), Color(0xFFFFD86B)))
-            },
-            style = d.text(54, W.ExtraBold, KkaeuColors.TextPrimary, lineHeight = 1.3f),
-            textAlign = TextAlign.Center,
+        Spacer(Modifier.height(d.dp(14)))
+        // 깨우랑이 말한 졸음쉼터 안내 결과 ("…안내할게요" / "…실패했어요"). 말하기 전에는 찾는 중, "음성으로 답하기" 중이면 묻는 문장
+        val line = state.voiceQuestion?.takeIf { state.voiceState in QUESTION_STATES }
+            ?: state.voiceGuide
+            ?: stringResource(R.string.danger_guide_default)
+        SpokenLine(
+            text = line,
+            sizePx = 46,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = d.dp(50)),
         )
-        Spacer(Modifier.height(d.dp(26)))
+        Spacer(Modifier.height(d.dp(14)))
         Row(
             Modifier
                 .fillMaxWidth()
@@ -450,6 +427,45 @@ private fun CriticalContent(state: DrowsinessUiState, onCancelVehicleControl: ()
             )
             RoutePanel(state, Modifier.weight(647f).fillMaxHeight())
         }
+        Spacer(Modifier.height(d.dp(6)))
+        CriticalResponseRow(state, onAnswerOkay, onVoiceAnswer)
+    }
+}
+
+/** 위험 단계에서도 졸리지 않으면 알릴 수 있게: [🎤 음성으로 답하기] [괜찮아요] */
+@Composable
+private fun CriticalResponseRow(state: DrowsinessUiState, onAnswerOkay: () -> Unit, onVoiceAnswer: () -> Unit) {
+    val d = LocalDesign.current
+    val voice = state.voiceState
+    val voiceLabel = when (voice) {
+        VoiceState.ASKING -> stringResource(R.string.caution_asking)
+        VoiceState.LISTENING -> stringResource(R.string.caution_listening)
+        else -> stringResource(R.string.warning_voice)
+    }
+    val active = voice in QUESTION_STATES
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(d.dp(20))) {
+        Text(
+            stringResource(R.string.danger_okay_hint),
+            style = d.text(22, W.SemiBold, KkaeuColors.TextSecondary),
+        )
+        Row(
+            modifier = Modifier
+                .height(d.dp(64))
+                .clip(RoundedCornerShape(50))
+                .background(
+                    if (active) Brush.verticalGradient(listOf(KkaeuColors.AccentLight, KkaeuColors.Accent))
+                    else Brush.verticalGradient(listOf(Color(0x24FFFFFF), Color(0x14FFFFFF)))
+                )
+                .border(d.dp(1.5f), Color(0x40FFFFFF), RoundedCornerShape(50))
+                .clickable(role = Role.Button, onClick = onVoiceAnswer)
+                .padding(start = d.dp(26), end = d.dp(32)),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(d.dp(12)),
+        ) {
+            KIcon(R.drawable.ic_ms_mic, d.dp(30), Color.White)
+            Text(voiceLabel, style = d.text(26, W.Bold, KkaeuColors.TextPrimary))
+        }
+        OkayPill(onAnswerOkay)
     }
 }
 
@@ -590,7 +606,13 @@ private fun RoutePanel(state: DrowsinessUiState, modifier: Modifier = Modifier) 
             verticalArrangement = Arrangement.spacedBy(d.dp(18)),
         ) {
             Text(
-                text = stringResource(if (stop?.isWaypointAdded == true) R.string.danger_route_done else R.string.danger_route_requested),
+                text = stringResource(
+                    when {
+                        stop?.isWaypointAdded == true -> R.string.danger_route_done
+                        state.restGuideOk == false -> R.string.danger_route_failed
+                        else -> R.string.danger_route_requested
+                    }
+                ),
                 style = d.text(29, W.Bold, KkaeuColors.TextPrimary, lineHeight = 1.25f),
                 textAlign = TextAlign.Center,
             )

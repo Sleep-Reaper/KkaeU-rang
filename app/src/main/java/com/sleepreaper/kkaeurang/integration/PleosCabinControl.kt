@@ -23,7 +23,7 @@ import kotlin.math.roundToInt
  * 실차용 실내 제어. Pleos Vehicle SDK의 Window·HVAC·Wiper로 운전석 창문과 찬바람을 움직인다.
  *
  * 필요한 권한: pleos.car.permission.CAR_WINDOWS, CONTROL_CAR_WINDOWS, CAR_CLIMATE, CONTROL_CAR_CLIMATE
- * (거부되면 명령이 실패로 돌아오고, 위에서 음성으로 대체 안내한다)
+ * (거부되면 명령이 실패로 돌아오고, 화면에 창문 닫힘으로 보인다)
  *
  * ## 가정 (실차에서 확인 필요)
  * - 창문 원시 값은 차종마다 범위가 달라서, 시작할 때 [checkWindowPositionCapabilities] 범위를 읽어 %로 바꾼다.

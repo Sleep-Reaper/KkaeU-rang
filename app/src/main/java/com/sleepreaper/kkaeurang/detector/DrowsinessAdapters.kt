@@ -44,7 +44,7 @@ class NoOpWindowModule : WindowModule {
         Log.w(TAG, "창문 열기 호출됨 (창문 제어 없음: 실제로는 열리지 않음)")
     }
 
-    /** 실제로 열지 못하므로 실패로 알린다 (엔진이 음성으로 대체 안내한다) */
+    /** 실제로 열지 못하므로 실패로 알린다 (엔진은 로그만 남기고, 화면은 창문 닫힘으로 보여 준다) */
     override fun open(onResult: (Boolean) -> Unit) {
         open()
         onResult(false)
@@ -57,7 +57,7 @@ class NoOpNaviModule : NaviModule {
         Log.w(TAG, "졸음쉼터 안내 호출됨 (미구현: 실제로는 안내되지 않음)")
     }
 
-    /** 실제로 안내하지 못하므로 실패로 알린다 (엔진이 음성으로 대체 안내한다) */
+    /** 실제로 안내하지 못하므로 실패로 알린다 (엔진이 "졸음쉼터 안내에 실패했어요"라고 말한다) */
     override fun guideToRestArea(onResult: (Boolean) -> Unit) {
         guideToRestArea()
         onResult(false)

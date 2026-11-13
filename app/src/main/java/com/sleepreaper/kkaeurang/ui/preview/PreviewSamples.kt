@@ -1,7 +1,13 @@
 package com.sleepreaper.kkaeurang.ui.preview
 
 import androidx.compose.ui.tooling.preview.Preview
+import com.sleepreaper.kkaeurang.ui.fake.SampleRecords
 import com.sleepreaper.kkaeurang.ui.model.AccrualState
+import com.sleepreaper.kkaeurang.ui.model.AlertCounts
+import com.sleepreaper.kkaeurang.ui.model.SleepRange
+import com.sleepreaper.kkaeurang.ui.model.StartCheckIn
+import com.sleepreaper.kkaeurang.ui.model.TripLogEntry
+import com.sleepreaper.kkaeurang.ui.model.TripLogKind
 import com.sleepreaper.kkaeurang.ui.model.DrowsinessUiState
 import com.sleepreaper.kkaeurang.ui.model.DrowsyLevel
 import com.sleepreaper.kkaeurang.ui.model.LifetimeStats
@@ -39,6 +45,8 @@ object NoOpKkaeuActions : KkaeuActions {
     override fun onToggleWarningSound() = Unit
     override fun onVoiceAnswer() = Unit
     override fun onFindRestStop() = Unit
+    override fun onStartCheckInAnswer(range: SleepRange) = Unit
+    override fun onStartCheckInSkip() = Unit
 }
 
 /** 미리보기 전용 샘플 데이터 (앱 화면 문구는 strings.xml, 여기 문장은 판단 엔진이 내려줄 값을 흉내 낸 것) */
@@ -81,6 +89,14 @@ object PreviewSamples {
         safetyHistory = listOf(88, 91, 93, 90, 96, 92, 89, 86),
         lifetime = LifetimeStats(totalDriveMinutes = 278 * 60, totalDistanceKm = 12_430f, averageSafetyScore = 93),
         sleep = SleepCondition(sleepStartMs = 1_760_200_200_000L, sleepMinutes = 440, awakeMinutes = 180),
+        tripDistanceKm = 112.4f,
+        driveLog = SampleRecords.driveLog(),
+        benefits = SampleRecords.benefits(),
+    )
+
+    val startCheckIn = normal.copy(
+        isParked = true,
+        startCheckIn = StartCheckIn(VoiceState.LISTENING, "마지막으로 몇 시간 주무셨어요?"),
     )
 
     val cautionAsking = normal.copy(
@@ -146,6 +162,22 @@ object PreviewSamples {
         maxLevel = DrowsyLevel.CRITICAL,
         eventCount = 5,
         restCount = 1,
+        startedAtMs = 1_763_010_120_000L,
+        endedAtMs = 1_763_018_520_000L,
+        distanceKm = 186.3f,
+        averageSafety = 84,
+        startSafety = 95,
+        safetyHistory = listOf(95, 93, 90, 72, 55, 48, 66, 81, 88, 90, 92, 91),
+        alertCounts = AlertCounts(caution = 2, warning = 1, critical = 1),
+        logs = listOf(
+            TripLogEntry(1_763_010_120_000L, TripLogKind.START, "주행을 시작했어요"),
+            TripLogEntry(1_763_010_120_000L, TripLogKind.CONDITION, "출발 전 컨디션: 수면 6~8시간 · 시작 점수 95점"),
+            TripLogEntry(1_763_013_000_000L, TripLogKind.EVENT, "핸들 고정 후 급조작", safetyDelta = -25),
+            TripLogEntry(1_763_013_001_000L, TripLogKind.LEVEL_UP, "안전 → 주의 단계 (안전 점수 55점)", level = DrowsyLevel.CAUTION),
+            TripLogEntry(1_763_013_002_000L, TripLogKind.QUESTION, "운전자에게 질문"),
+            TripLogEntry(1_763_013_010_000L, TripLogKind.ANSWER, "운전자 응답: 괜찮음"),
+            TripLogEntry(1_763_018_520_000L, TripLogKind.END, "주행을 마쳤어요 (P단)"),
+        ),
     )
 
     val parked = normal.copy(isParked = true, tripReport = tripReport, totalPoints = 12_580)

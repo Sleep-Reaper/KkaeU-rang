@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -31,14 +30,14 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import com.sleepreaper.kkaeurang.R
 import com.sleepreaper.kkaeurang.ui.model.DrowsinessUiState
-import com.sleepreaper.kkaeurang.ui.model.DrowsyThresholds
 import com.sleepreaper.kkaeurang.ui.model.VoiceState
+import com.sleepreaper.kkaeurang.ui.screens.EDGE_LEFT_PX
+import com.sleepreaper.kkaeurang.ui.screens.EDGE_RIGHT_PX
 import com.sleepreaper.kkaeurang.ui.theme.AccentBrush
 import com.sleepreaper.kkaeurang.ui.theme.KkaeuColors
 import com.sleepreaper.kkaeurang.ui.theme.LocalDesign
@@ -47,16 +46,21 @@ import com.sleepreaper.kkaeurang.ui.theme.W
 /** 헤더 높이 (시안 px) */
 const val HEADER_HEIGHT_PX = 150
 
+/** 헤더 양옆 알약의 위쪽 여백과 높이 (시안 px). 왼쪽 위험 시간대와 오른쪽 음성 상태가 같은 줄에 오도록 둘 다 이 높이 가운데에 둔다 */
+private const val SIDE_TOP_PX = 33
+private const val PILL_HEIGHT_PX = 56
+
 /**
  * 모든 화면 위쪽 공통 헤더 (시안 높이 150px).
- * 왼쪽: 연속 주행 시간 · 위험 시간대 / 가운데: 로고 + "졸음보다 한발 먼저, 깨우랑" / 오른쪽: 음성 상태 · 경고음 스위치
+ * 왼쪽: 위험 시간대 (해당 시간에만) / 가운데: 로고 + "졸음보다 한발 먼저, 깨우랑" / 오른쪽: 음성 상태
+ * 주행 시간은 홈 "현재 주행 로그" 카드에, 경고음 켜고 끄기는 설정 탭에 있다.
+ * 왼쪽·오른쪽 끝은 아래 카드들의 좌우 끝([EDGE_LEFT_PX]·[EDGE_RIGHT_PX])에 맞춘다.
  *
  * @param onLogoLongPress 로고를 길게 누르면 호출 (디버그 패널). null이면 아무 일 없음
  */
 @Composable
 fun KkaeuHeader(
     state: DrowsinessUiState,
-    onToggleWarningSound: () -> Unit,
     onLogoLongPress: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
@@ -66,52 +70,40 @@ fun KkaeuHeader(
             .fillMaxWidth()
             .height(d.dp(HEADER_HEIGHT_PX)),
     ) {
-        DriveInfo(
-            state = state,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(start = d.dp(50), top = d.dp(31)),
-        )
+        if (state.isRiskTimeZone) {
+            RiskTimeChip(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = d.dp(EDGE_LEFT_PX), top = d.dp(SIDE_TOP_PX))
+                    .height(d.dp(PILL_HEIGHT_PX)),
+            )
+        }
         HeaderLogo(
             onLongPress = onLogoLongPress,
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .padding(top = d.dp(18)),
         )
-        Row(
+        VoicePill(
+            state = state,
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .padding(end = d.dp(38), top = d.dp(33)),
-            horizontalArrangement = Arrangement.spacedBy(d.dp(20)),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            VoicePill(state)
-            WarningSoundPill(on = state.warningSoundOn, onToggle = onToggleWarningSound)
-        }
+                .padding(end = d.dp(EDGE_RIGHT_PX), top = d.dp(SIDE_TOP_PX)),
+        )
     }
 }
 
-/** "🕐 1시간 12분 주행 중" + "🌙 위험 시간대" */
+/** "🌙 위험 시간대" (졸음 위험 시간대일 때만) */
 @Composable
-private fun DriveInfo(state: DrowsinessUiState, modifier: Modifier = Modifier) {
+private fun RiskTimeChip(modifier: Modifier = Modifier) {
     val d = LocalDesign.current
-    val long = state.continuousDriveMin >= DrowsyThresholds.LONG_DRIVE_MIN
-    val color = if (long) KkaeuColors.Yellow else KkaeuColors.TextPrimary
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(d.dp(14))) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(d.dp(14))) {
-            KIcon(R.drawable.ic_ms_schedule, d.dp(28), color)
-            Text(
-                text = if (state.isParked) stringResource(R.string.header_parked)
-                else stringResource(R.string.main_drive_time, durationText(state.continuousDriveMin)),
-                style = d.text(22, W.Bold, color),
-            )
-        }
-        if (state.isRiskTimeZone) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(d.dp(14))) {
-                KIcon(R.drawable.ic_ms_bedtime, d.dp(28), KkaeuColors.TextSecondary)
-                Text(stringResource(R.string.main_risk_time), style = d.text(21, W.SemiBold, KkaeuColors.TextSecondary))
-            }
-        }
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(d.dp(14)),
+    ) {
+        KIcon(R.drawable.ic_ms_bedtime, d.dp(28), KkaeuColors.TextSecondary)
+        Text(stringResource(R.string.main_risk_time), style = d.text(22, W.SemiBold, KkaeuColors.TextSecondary))
     }
 }
 
@@ -182,21 +174,22 @@ private fun HeaderPill(
     val d = LocalDesign.current
     val shape = RoundedCornerShape(50)
     Row(
-        modifier = Modifier
-            .height(d.dp(56))
+        modifier = modifier
+            .height(d.dp(PILL_HEIGHT_PX))
             .clip(shape)
             .background(fill)
-            .border(d.dp(1.5f), KkaeuColors.PillBorder, shape)
-            .then(modifier),
+            .border(d.dp(1.5f), KkaeuColors.PillBorder, shape),
         verticalAlignment = Alignment.CenterVertically,
     ) { content() }
 }
 
 /** 🎤 대기 / 말하는 중… / 듣는 중… / "괜찮아" / 응답 없음 / 인식 불가 / 알람 중 */
 @Composable
-private fun VoicePill(state: DrowsinessUiState) {
+private fun VoicePill(state: DrowsinessUiState, modifier: Modifier = Modifier) {
     val d = LocalDesign.current
-    val voice = state.voiceState
+    // 출발 전 컨디션 질문을 묻고 듣는 동안에는 그 상태를 보여 준다
+    val voice = state.startCheckIn?.voiceState?.takeIf { it == VoiceState.ASKING || it == VoiceState.LISTENING }
+        ?: state.voiceState
     val (icon, label) = when (voice) {
         VoiceState.IDLE -> R.drawable.ic_ms_mic to stringResource(R.string.main_voice_idle)
         VoiceState.ASKING -> R.drawable.ic_ms_record_voice_over to stringResource(R.string.main_voice_asking)
@@ -208,27 +201,15 @@ private fun VoicePill(state: DrowsinessUiState) {
     }
     // 말하는 중·듣는 중·알람은 보라색으로 채워서 눈에 띄게
     val active = voice == VoiceState.ASKING || voice == VoiceState.LISTENING || voice == VoiceState.ALARM
-    HeaderPill(fill = if (active) AccentBrush else Brush.verticalGradient(listOf(KkaeuColors.PillFill, KkaeuColors.PillFill))) {
+    HeaderPill(
+        modifier = modifier,
+        fill = if (active) AccentBrush else Brush.verticalGradient(listOf(KkaeuColors.PillFill, KkaeuColors.PillFill)),
+    ) {
         Spacer(Modifier.width(d.dp(26)))
         KIcon(icon, d.dp(28), KkaeuColors.TextPrimary)
         Spacer(Modifier.width(d.dp(14)))
         Text(label, style = d.text(21, W.SemiBold, KkaeuColors.TextPrimary), maxLines = 1)
         Spacer(Modifier.width(d.dp(30)))
-    }
-}
-
-/** 🔊 경고음 [스위치]. 알약 전체를 눌러도 켜고 끈다 */
-@Composable
-private fun WarningSoundPill(on: Boolean, onToggle: () -> Unit) {
-    val d = LocalDesign.current
-    HeaderPill(modifier = Modifier.toggleable(value = on, role = Role.Switch, onValueChange = { onToggle() })) {
-        Spacer(Modifier.width(d.dp(24)))
-        KIcon(if (on) R.drawable.ic_ms_volume_up else R.drawable.ic_ms_volume_off, d.dp(28), KkaeuColors.TextPrimary)
-        Spacer(Modifier.width(d.dp(12)))
-        Text(stringResource(R.string.main_warning_sound), style = d.text(21, W.SemiBold, KkaeuColors.TextPrimary))
-        Spacer(Modifier.width(d.dp(22)))
-        KkaeuSwitch(on)
-        Spacer(Modifier.width(d.dp(8)))
     }
 }
 
