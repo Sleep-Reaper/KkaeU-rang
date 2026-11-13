@@ -16,6 +16,12 @@
     <uses-permission android:name="android.car.permission.CAR_SPEED" />  <!-- 차속 -->
     <uses-permission android:name="android.car.permission.CAR_POWERTRAIN" /> <!-- 기어 -->
 
+    <!-- 졸음 대응: 창문 열기·찬바람 -->
+    <uses-permission android:name="pleos.car.permission.CAR_WINDOWS" />          <!-- 창문 위치 읽기, 와이퍼(비) 상태 -->
+    <uses-permission android:name="pleos.car.permission.CONTROL_CAR_WINDOWS" />  <!-- 창문 열고 닫기 -->
+    <uses-permission android:name="pleos.car.permission.CAR_CLIMATE" />          <!-- 공조 상태 읽기 -->
+    <uses-permission android:name="pleos.car.permission.CONTROL_CAR_CLIMATE" />  <!-- 에어컨·풍량·외기 제어 -->
+
     <!-- 졸음 감시 포그라운드 서비스 (화면을 바꿔도 계속 동작) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
