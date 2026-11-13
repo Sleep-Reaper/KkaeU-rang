@@ -489,18 +489,18 @@ class KkaeuLiveSource(
         if (decision.coolAir != prev.coolAir) coolAirFailed = false
         actuator.apply(decision, sample.isPark)
 
-        val message = when {
-            decision.blockedByRain && !prev.blockedByRain && decision.coolAir ->
+        val message = when (cabinNoticeFor(prev, decision, actuator.driverOverride, windowFailed, sample.isPark)) {
+            CabinNotice.BLOCKED_BY_RAIN ->
                 VehicleControlEvent(
                     message = appContext.getString(R.string.live_window_try),
                     canCancel = true,
                     blockedReason = appContext.getString(R.string.live_window_blocked_rain),
                 )
-            decision.windowPercent > 0 && prev.windowPercent == 0 && !actuator.driverOverride && !windowFailed ->
+            CabinNotice.OPENED ->
                 VehicleControlEvent(appContext.getString(R.string.live_window_opened), canCancel = true, blockedReason = null)
-            decision.windowPercent == 0 && !decision.coolAir && (prev.windowPercent > 0 || prev.coolAir) && !sample.isPark ->
+            CabinNotice.CLOSED ->
                 VehicleControlEvent(appContext.getString(R.string.live_window_closed), canCancel = false, blockedReason = null)
-            else -> null
+            null -> null
         }
         if (message != null) vehicleEventUntilMs = now + VEHICLE_EVENT_SHOW_MS
 

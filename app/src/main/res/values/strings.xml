@@ -90,7 +90,7 @@
     <string name="danger_window_open">창문 열림</string>
     <string name="danger_window_closed">창문 닫힘</string>
     <string name="danger_window_undo">원래대로 되돌리기</string>
-    <string name="danger_front_seats">(앞 좌석 2개)</string>
+    <string name="danger_front_seats">(앞 좌석 1개)</string>
     <string name="danger_rear_seats">(뒷좌석 2개)</string>
     <string name="danger_route_done">가까운 쉼터로\n경로 변경 완료</string>
     <string name="danger_route_requested">가까운 쉼터로\n안내를 요청했어요</string>

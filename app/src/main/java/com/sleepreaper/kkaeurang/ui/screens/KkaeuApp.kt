@@ -17,8 +17,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.sleepreaper.kkaeurang.ui.components.AlertTabs
+import com.sleepreaper.kkaeurang.ui.components.VehicleEventBanner
 import com.sleepreaper.kkaeurang.ui.components.KkaeuBottomNav
 import com.sleepreaper.kkaeurang.ui.components.KkaeuHeader
 import com.sleepreaper.kkaeurang.ui.components.KkaeuTab
@@ -164,6 +166,12 @@ private fun MainFrame(
                 KkaeuTab.SETTINGS -> SettingsTab(state.warningSoundOn, actions::onToggleWarningSound)
                 else -> ComingSoonTab(tab)
             }
+            // 창문·찬바람 안내 ("창문을 조금 열었어요", "원래대로 닫았어요"): 어느 탭에서든 본문 맨 아래에 잠깐.
+            // 홈에서는 "나의 주행 로그" 카드 글씨를 가리지 않도록 카드와 하단 탭 사이 빈 곳에 걸치게 둔다
+            VehicleEventBanner(
+                event = state.vehicleEvent,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
         }
         KkaeuBottomNav(
             tabs = if (alert) AlertTabs else KkaeuTab.entries,
