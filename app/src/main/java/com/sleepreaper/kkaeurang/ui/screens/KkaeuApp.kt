@@ -164,7 +164,7 @@ private fun MainFrame(
                 KkaeuTab.DRIVE_LOG -> DriveLogTab(state.driveLog)
                 KkaeuTab.BENEFITS -> BenefitsTab(state.totalPoints, state.benefits)
                 KkaeuTab.SETTINGS -> SettingsTab(state.warningSoundOn, actions::onToggleWarningSound)
-                KkaeuTab.MY -> ComingSoonTab(tab)
+                KkaeuTab.MY -> MyTab()
             }
             // 창문·찬바람 안내 ("창문을 조금 열었어요", "원래대로 닫았어요"): 어느 탭에서든 본문 맨 아래에 잠깐.
             // 홈에서는 "현재 주행 로그" 카드 글씨를 가리지 않도록 카드와 하단 탭 사이 빈 곳에 걸치게 둔다
