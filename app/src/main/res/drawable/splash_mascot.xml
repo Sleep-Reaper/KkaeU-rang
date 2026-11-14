@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 시스템 시작 화면(스플래시) 아이콘: 헤더 로고의 마스코트를 가운데에. 크기는 dimens.xml의 splash_mascot_* -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:width="@dimen/splash_mascot_width"
+        android:height="@dimen/splash_mascot_height"
+        android:gravity="center">
+        <bitmap
+            android:filter="true"
+            android:src="@drawable/img_logo_mascot" />
+    </item>
+</layer-list>

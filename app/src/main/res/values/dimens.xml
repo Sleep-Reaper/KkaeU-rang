@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        시스템 시작 화면(스플래시) 가운데 마스코트 크기.
+        앱 시작 화면(StartupScreen)도 첫 장면에서 같은 크기·같은 자리에 마스코트를 그려서 두 화면이 끊김 없이 이어진다.
+        스플래시 아이콘은 192dp 원 안에 들어가야 잘리지 않는다 (대각선 약 187dp). 비율은 img_logo_mascot(242×164)과 같게.
+    -->
+    <dimen name="splash_mascot_width">155dp</dimen>
+    <dimen name="splash_mascot_height">105dp</dimen>
+</resources>

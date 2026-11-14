@@ -1,16 +1,22 @@
 package com.sleepreaper.kkaeurang
 
 import android.Manifest
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,23 +25,29 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.sleepreaper.kkaeurang.integration.DrowsinessService
 import com.sleepreaper.kkaeurang.integration.KkaeuRuntime
 import com.sleepreaper.kkaeurang.ui.fake.FakeKkaeuStateSource
 import com.sleepreaper.kkaeurang.ui.screens.KkaeuApp
+import com.sleepreaper.kkaeurang.ui.screens.StartupScreen
+import com.sleepreaper.kkaeurang.ui.screens.StartupStatus
 import com.sleepreaper.kkaeurang.ui.theme.KkaeUrangTheme
 import com.sleepreaper.kkaeurang.voice.StopReason
 import com.sleepreaper.kkaeurang.voice.VoiceInputResult
 import com.sleepreaper.kkaeurang.voice.VoiceModule
+import kotlinx.coroutines.delay
 
 private const val ASK_QUESTION = "주행이 평소와 조금 달라요. 괜찮으세요?"
 private const val TAG = "Kkaeu.Main"
@@ -53,6 +65,12 @@ private val APP_MODE = AppMode.LIVE_SIMULATED
 
 /** 실제 모드(LIVE·LIVE_SIMULATED)에서 로고(헤더 가운데)나 계기판을 길게 누르면 엔진 디버그 패널을 연다. 배포 때는 false */
 private const val LIVE_DEBUG_PANEL = true
+
+/**
+ * 앱을 처음 켤 때 시작 화면(StartupScreen)을 최소 이만큼은 보여 준다.
+ * 엔진이 바로 떠도 시작 장면(마스코트가 올라가고 로고가 떠오름)이 끝나기 전에 화면이 휙 바뀌지 않도록. 0이면 바로 넘어간다
+ */
+private const val MIN_STARTUP_MS = 1_200L
 
 // 차량 신호 수집·차량 제어에 필요한 실행 중 권한 (Manifest에도 선언되어 있어야 함)
 private val CAR_PERMISSIONS = arrayOf(
@@ -92,11 +110,21 @@ class MainActivity : ComponentActivity() {
             if (MIC_PERMISSION in denied) {
                 // 마이크 없이는 마이크 타입 서비스를 시작할 수 없고 음성 질문도 못 하므로 시작하지 않는다
                 Log.e(TAG, "마이크 권한 거부 → 졸음 감시 서비스를 시작하지 않음")
+                // 다시 물어볼 수 있으면 "권한 다시 요청", "다시 묻지 않음"이면 설정에서 켜도록 안내
+                micProblem = if (shouldShowRequestPermissionRationale(MIC_PERMISSION)) {
+                    StartupStatus.MIC_DENIED
+                } else {
+                    StartupStatus.MIC_BLOCKED
+                }
                 return@registerForActivityResult
             }
+            micProblem = null
             // 차량 권한 일부가 거부돼도 시작한다. 어떤 신호가 안 들어오는지 로그로 확인하기 위함.
             startDrowsinessService(simulated = APP_MODE == AppMode.LIVE_SIMULATED)
         }
+
+    /** 마이크 권한 때문에 감시를 시작하지 못했으면 MIC_DENIED·MIC_BLOCKED (시작 화면에 안내) */
+    private var micProblem by mutableStateOf<StartupStatus?>(null)
 
     // 테스트 화면 상태 (VoiceModule 콜백은 메인 스레드로 오므로 바로 바꿔도 된다)
     private var askState by mutableStateOf(AskState.IDLE)
@@ -105,40 +133,18 @@ class MainActivity : ComponentActivity() {
     private var alarmStopReason by mutableStateOf<StopReason?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // 시스템 시작 화면(스플래시)을 Theme.KkaeUrang.Starting으로 띄우고, 첫 화면이 그려지면 Theme.KkaeUrang으로 바꾼다
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         // 창문·공조(cabin)와 내비 모듈은 DrowsinessService가 KkaeuLiveSource(cabin = ..., navi = ...)로 넘긴다
         // 이미 서비스가 돌고 있으면(화면 회전·재진입) 다시 시작하지 않는다
-        if (KkaeuRuntime.source.value == null) {
-            when (APP_MODE) {
-                AppMode.LIVE ->
-                    permissionLauncher.launch(arrayOf(MIC_PERMISSION) + NOTIFICATION_PERMISSIONS + CAR_PERMISSIONS)
-                // 가짜 차량 신호는 차량 권한이 필요 없지만, 음성은 실제라 마이크·알림 권한은 필요하다
-                AppMode.LIVE_SIMULATED ->
-                    permissionLauncher.launch(arrayOf(MIC_PERMISSION) + NOTIFICATION_PERMISSIONS)
-                else -> Unit
-            }
-        }
+        if (KkaeuRuntime.source.value == null) requestStart()
 
         enableEdgeToEdge()
         setContent {
             KkaeUrangTheme {
                 when (APP_MODE) {
-                    AppMode.LIVE, AppMode.LIVE_SIMULATED -> {
-                        // 서비스가 엔진을 만든 뒤에 source가 생긴다 (그 전이나 서비스 종료 후에는 null)
-                        val source by KkaeuRuntime.source.collectAsState()
-                        val live = source
-                        if (live == null) {
-                            PreparingScreen()
-                        } else {
-                            val state by live.state.collectAsState()
-                            KkaeuApp(
-                                state = state,
-                                actions = live,
-                                debugControls = null,
-                                liveDebugControls = live.takeIf { LIVE_DEBUG_PANEL },
-                            )
-                        }
-                    }
+                    AppMode.LIVE, AppMode.LIVE_SIMULATED -> LiveContent()
                     AppMode.FAKE_DEMO -> {
                         val state by fakeSource.state.collectAsState()
                         KkaeuApp(state = state, actions = fakeSource, debugControls = fakeSource)
@@ -156,6 +162,94 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // 설정에서 마이크를 켜고 돌아왔으면 바로 시작
+        if (micProblem != null && checkSelfPermission(MIC_PERMISSION) == PackageManager.PERMISSION_GRANTED) {
+            requestStart()
+        }
+    }
+
+    /** 권한을 묻고, 마이크 권한이 있으면 졸음 감시 서비스를 시작한다 (결과는 permissionLauncher에서) */
+    private fun requestStart() {
+        micProblem = null
+        when (APP_MODE) {
+            AppMode.LIVE ->
+                permissionLauncher.launch(arrayOf(MIC_PERMISSION) + NOTIFICATION_PERMISSIONS + CAR_PERMISSIONS)
+            // 가짜 차량 신호는 차량 권한이 필요 없지만, 음성은 실제라 마이크·알림 권한은 필요하다
+            AppMode.LIVE_SIMULATED ->
+                permissionLauncher.launch(arrayOf(MIC_PERMISSION) + NOTIFICATION_PERMISSIONS)
+            else -> Unit
+        }
+    }
+
+    /**
+     * 이 앱의 설정 화면 (권한을 "다시 묻지 않음"으로 거부했을 때 직접 켜도록). Pleos에서는 설정 > 앱 > 깨우랑 > 권한이 바로 열린다.
+     * 따로 된 작업(task)으로 연다: 깨우랑 작업 위에 쌓이면 Pleos 설정은 뒤로 가기로 닫히지 않아서,
+     * 깨우랑 아이콘을 다시 눌러도 설정 화면만 보인다.
+     */
+    private fun openAppSettings() {
+        try {
+            startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (e: ActivityNotFoundException) {
+            Log.e(TAG, "앱 설정 화면을 열 수 없음", e)
+        }
+    }
+
+    /** 실제 모드 화면: 엔진이 뜨기 전에는 시작 화면, 뜬 뒤에는 깨우랑 UI (서로 부드럽게 겹치며 바뀐다) */
+    @Composable
+    private fun LiveContent() {
+        // 서비스가 엔진을 만든 뒤에 source가 생긴다 (그 전이나 서비스 종료 후에는 null)
+        val source by KkaeuRuntime.source.collectAsState()
+        // 처음 켤 때는 시작 화면을 최소 MIN_STARTUP_MS 동안 보여 준다. 엔진이 이미 돌고 있으면(화면 재진입·회전) 바로 본 화면.
+        // 저장하지 않는다: Pleos는 앱을 강제 종료한 뒤에도 저장된 상태로 다시 띄우는데, 그때도 엔진은 새로 떠야 하므로
+        var introDone by remember { mutableStateOf(source != null) }
+        LaunchedEffect(Unit) {
+            if (!introDone) {
+                delay(MIN_STARTUP_MS)
+                introDone = true
+            }
+        }
+        // 돌던 엔진이 꺼지면(알림의 종료 버튼) 시작 화면에 "꺼져 있어요"를 보여 준다.
+        // 화면이 새로 만들어지면 onCreate가 다시 시작하므로 저장하지 않는다
+        var wasRunning by remember { mutableStateOf(false) }
+        LaunchedEffect(source) {
+            if (source != null) wasRunning = true
+        }
+
+        Crossfade(
+            targetState = source.takeIf { introDone },
+            animationSpec = tween(400),
+            label = "startupToApp",
+        ) { live ->
+            if (live == null) {
+                StartupScreen(
+                    // source가 있는데 이 화면이 보이는 건 최소 시간을 채우는 중이거나 본 화면으로 넘어가며 사라지는 중 → 준비 중
+                    status = micProblem
+                        ?: if (wasRunning && source == null) StartupStatus.STOPPED else StartupStatus.PREPARING,
+                    onRetry = {
+                        wasRunning = false
+                        requestStart()
+                    },
+                    onOpenSettings = ::openAppSettings,
+                    // 꺼져서 돌아온 경우에는 스플래시에서 이어지는 시작 장면이 필요 없다
+                    playIntro = !wasRunning,
+                )
+            } else {
+                val state by live.state.collectAsState()
+                KkaeuApp(
+                    state = state,
+                    actions = live,
+                    debugControls = null,
+                    liveDebugControls = live.takeIf { LIVE_DEBUG_PANEL },
+                )
             }
         }
     }
@@ -196,14 +290,6 @@ class MainActivity : ComponentActivity() {
         // 엔진과 음성은 서비스가 들고 있으므로 여기서 멈추지 않는다 (화면을 닫아도 계속 감시)
         if (APP_MODE == AppMode.VOICE_TEST) voiceModule.release()
         super.onDestroy()
-    }
-}
-
-/** 서비스가 엔진을 만들기 전(권한 요청 중 포함)이나 서비스가 종료된 뒤에 보이는 화면 */
-@Composable
-private fun PreparingScreen() {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(text = "졸음 감시 준비 중…", fontSize = 28.sp)
     }
 }
 
