@@ -26,7 +26,8 @@
 5. [Pleos Connect 에뮬레이터 버전과 화면 규격](#5-pleos-connect-에뮬레이터-버전과-화면-규격)
 6. [APK 파일 위치 / GitHub Release](#6-apk-파일-위치--github-release)
 7. [기술 스택과 프로젝트 구조](#7-기술-스택과-프로젝트-구조)
-8. [숏폼 영상](#8-숏폼-영상)
+8. [시연 영상](#8-시연-영상)
+9. [숏폼 영상](#9-숏폼-영상)
 
 ---
 
@@ -324,7 +325,25 @@ app/src/main/java/com/sleepreaper/kkaeurang/
 
 ---
 
-## 8. 숏폼 영상
+## 8. 시연 영상
+
+<div align="center">
+
+<a href="https://youtu.be/aj4swLILkNE">
+  <img src="https://img.youtube.com/vi/aj4swLILkNE/hqdefault.jpg" width="640" alt="깨우랑 시연 영상 보기" />
+</a>
+
+<br />
+
+**▶ [깨우랑 시연 영상 보기 (YouTube)](https://youtu.be/aj4swLILkNE)**
+
+<sub>깨우랑 기능 시연 영상</sub>
+
+</div>
+
+---
+
+## 9. 숏폼 영상
 
 <div align="center">
 
