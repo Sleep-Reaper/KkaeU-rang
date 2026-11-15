@@ -4,4 +4,15 @@
     <style name="Theme.KkaeUrang" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/kkaeu_background</item>
     </style>
+
+    <!--
+        앱 아이콘을 누른 직후 시스템이 띄우는 시작 화면(스플래시). 밤하늘 남색 + 마스코트.
+        MainActivity가 installSplashScreen()을 부르면 첫 화면이 그려질 때 Theme.KkaeUrang으로 바뀐다.
+        바로 뒤에 나오는 앱 시작 화면(StartupScreen)이 같은 색·같은 마스코트로 이어 받는다.
+    -->
+    <style name="Theme.KkaeUrang.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/kkaeu_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_mascot</item>
+        <item name="postSplashScreenTheme">@style/Theme.KkaeUrang</item>
+    </style>
 </resources>

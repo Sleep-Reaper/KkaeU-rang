@@ -12,6 +12,8 @@ import com.sleepreaper.kkaeurang.ui.components.SafetyGauge
 import com.sleepreaper.kkaeurang.ui.model.DrowsyLevel
 import com.sleepreaper.kkaeurang.ui.model.DrowsinessUiState
 import com.sleepreaper.kkaeurang.ui.screens.KkaeuApp
+import com.sleepreaper.kkaeurang.ui.screens.StartupScreen
+import com.sleepreaper.kkaeurang.ui.screens.StartupStatus
 import com.sleepreaper.kkaeurang.ui.theme.KkaeUrangTheme
 import com.sleepreaper.kkaeurang.ui.theme.ProvideDesignScale
 
@@ -71,6 +73,33 @@ fun Preview11TripReport() = AppPreview(PreviewSamples.parked)
 @SplitPreview
 @Composable
 fun PreviewSplitHome() = AppPreview(PreviewSamples.normal)
+
+// ───────── 앱 시작 화면 (미리보기는 시작 장면이 끝난 모습) ─────────
+
+@Composable
+private fun StartupPreview(status: StartupStatus) = KkaeUrangTheme {
+    StartupScreen(status = status, onRetry = {}, onOpenSettings = {})
+}
+
+@LandscapePreview
+@Composable
+fun Preview12StartupPreparing() = StartupPreview(StartupStatus.PREPARING)
+
+@LandscapePreview
+@Composable
+fun Preview13StartupMicDenied() = StartupPreview(StartupStatus.MIC_DENIED)
+
+@LandscapePreview
+@Composable
+fun Preview14StartupMicBlocked() = StartupPreview(StartupStatus.MIC_BLOCKED)
+
+@LandscapePreview
+@Composable
+fun Preview15StartupStopped() = StartupPreview(StartupStatus.STOPPED)
+
+@SplitPreview
+@Composable
+fun PreviewSplitStartup() = StartupPreview(StartupStatus.MIC_DENIED)
 
 // ───────── 블록 단위 ─────────
 
