@@ -26,6 +26,7 @@
 5. [Pleos Connect 에뮬레이터 버전과 화면 규격](#5-pleos-connect-에뮬레이터-버전과-화면-규격)
 6. [APK 파일 위치 / GitHub Release](#6-apk-파일-위치--github-release)
 7. [기술 스택과 프로젝트 구조](#7-기술-스택과-프로젝트-구조)
+8. [시연 영상](#8-시연-영상)
 
 ---
 
@@ -318,3 +319,22 @@ app/src/main/java/com/sleepreaper/kkaeurang/
     ├── model/ · state/      # UI 상태 모델
     └── theme/               # 색·글꼴·디자인 토큰
 ```
+
+
+---
+
+## 8. 시연 영상
+
+<div align="center">
+
+<a href="https://www.instagram.com/reel/DfwqpiDATJq/">
+  <img src="docs/screenshots/03_home.jpg" width="640" alt="깨우랑 시연 영상 보기" />
+</a>
+
+<br />
+
+**▶ [깨우랑 시연 영상 보기 (Instagram Reels)](https://www.instagram.com/reel/DfwqpiDATJq/)**
+
+<sub>졸음 감지 → 음성 질문 → 창문·찬바람 → 졸음쉼터 경유지 안내까지 한 번의 주행 흐름</sub>
+
+</div>
